@@ -1,20 +1,11 @@
-"""
-Data Analysis Module
-Statistical and frequency analysis of DAS data
-Calls visualization functions directly
-"""
-
 import numpy as np
-from scipy import signal as scipy_signal
 from scipy.signal import find_peaks
 from visualizations import (plot_raw_waterfall, plot_statistical_analysis,
                             plot_frequency_analysis)
 
 
 def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
-                                   segment_name="segment", output_dir=None,
-                                   verbose=True):
-
+                                  segment_name="segment", output_dir=None):
     data_flat = df.values.flatten()
 
     # Calculate key metrics
@@ -38,18 +29,17 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
     channel_vars = df.var(axis=0).values
     time_energy = (df ** 2).sum(axis=1).values
 
-    if verbose:
-        print("\n" + "="*60)
-        print("BASIC STATISTICS")
-        print("="*60)
-        print(f"Mean:   {mean:.6e}")
-        print(f"Std:    {std:.6e}")
-        print("Value is positive when it is stretched (tension is put on a cable), negative when compressed.")
-        print(f"Range:  [{min_val:.2e}, {max_val:.2e}]")
-        print(f"Median: {median:.6e}")
-        print(f"\nNoise floor (95%): ±{p95:.2e}")
-        print(f"Vehicle threshold (99%): >{p99:.2e}")
-        print("="*60)
+    print("\n" + "=" * 60)
+    print("BASIC STATISTICS")
+    print("=" * 60)
+    print(f"Mean:   {mean:.6e}")
+    print(f"Std:    {std:.6e}")
+    print("Value is positive when it is stretched (tension is put on a cable), negative when compressed.")
+    print(f"Range:  [{min_val:.2e}, {max_val:.2e}]")
+    print(f"Median: {median:.6e}")
+    print(f"\nNoise floor (95%): ±{p95:.2e}")
+    print(f"Vehicle threshold (99%): >{p99:.2e}")
+    print("=" * 60)
 
     # Create statistical plot
     stats_dict = {
@@ -63,16 +53,13 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
 
     save_path = f"{output_dir}/{segment_name}_statistics.png" if output_dir else None
     plot_statistical_analysis(df, stats_dict, dx=dx, dt=dt,
-                             title=f"Statistical Analysis: {segment_name}",
-                             save_path=save_path)
+                              title=f"Statistical Analysis: {segment_name}",
+                              save_path=save_path)
 
     # ==========================================
     # 2. FREQUENCY ANALYSIS
     # ==========================================
-
-    if verbose:
-        print("\nPerforming frequency analysis...")
-
+    print("Frequency analysis")
     sampling_rate = 1 / dt
     nyquist_freq = sampling_rate / 2
 
@@ -120,16 +107,15 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
             'magnitude': np.abs(fft[pos_mask])
         })
 
-    if verbose:
-        print("\n" + "="*60)
-        print("FREQUENCY ANALYSIS")
-        print("="*60)
-        print(f"Sampling rate: {sampling_rate:.1f} Hz")
-        print(f"Nyquist frequency: {nyquist_freq:.1f} Hz")
-        print(f"\nDominant frequencies (< {freq_limit} Hz):")
-        for i, (freq, mag) in enumerate(zip(dominant_freqs[:5], dominant_mags[:5])):
-            print(f"  {i+1}. {freq:.2f} Hz (magnitude: {mag:.2e})")
-        print("="*60)
+    print("\n" + "=" * 60)
+    print("FREQUENCY ANALYSIS")
+    print("=" * 60)
+    print(f"Sampling rate: {sampling_rate:.1f} Hz")
+    print(f"Nyquist frequency: {nyquist_freq:.1f} Hz")
+    print(f"\nDominant frequencies (< {freq_limit} Hz):")
+    for i, (freq, mag) in enumerate(zip(dominant_freqs[:5], dominant_mags[:5])):
+        print(f"  {i + 1}. {freq:.2f} Hz (magnitude: {mag:.2e})")
+    print("=" * 60)
 
     # Create frequency plot
     freq_dict = {
@@ -144,8 +130,8 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
 
     save_path = f"{output_dir}/{segment_name}_frequency.png" if output_dir else None
     plot_frequency_analysis(freq_dict, dt=dt,
-                           title=f"Frequency Analysis: {segment_name}",
-                           save_path=save_path)
+                            title=f"Frequency Analysis: {segment_name}",
+                            save_path=save_path)
 
     # ==========================================
     # 4. SNR AND ACTIVE REGIONS
@@ -153,7 +139,7 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
 
     # Estimate noise
     sorted_vars = np.sort(channel_vars)
-    noise_estimate = np.mean(sorted_vars[:len(sorted_vars)//4])
+    noise_estimate = np.mean(sorted_vars[:len(sorted_vars) // 4])
 
     # Calculate SNR - high snr - high variance - clear signals, a lot of vehicles
     snr = channel_vars / (noise_estimate + 1e-10)
@@ -164,14 +150,14 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
     active_indices = np.where(channel_vars > threshold)[0]
     active_positions = active_indices * dx
 
-    if verbose:
-        print("\n" + "="*60)
-        print("ACTIVE REGIONS")
-        print("="*60)
-        print(f"Active channels: {len(active_indices)} - areas of the street")
-        if len(active_positions) > 0:
-            print(f"Spatial range: {active_positions[0]:.1f} - {active_positions[-1]:.1f} m")
-        print("="*60)
+    print("\n" + "=" * 60)
+    print("ACTIVE REGIONS")
+    print("=" * 60)
+    print(f"Active channels: {len(active_indices)} - areas of the street")
+    if len(active_positions) > 0:
+        print(f"Spatial range: {active_positions[0]:.1f} - {active_positions[-1]:.1f} m")
+    print("=" * 60)
+
 
     # ==========================================
     # 5. WATERFALL AND COMPARISON PLOTS
@@ -180,4 +166,4 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
     # Waterfall plot
     save_path = f"{output_dir}/{segment_name}_waterfall.png" if output_dir else None
     plot_raw_waterfall(df, title=f"Raw DAS Data: {segment_name}",
-                      save_path=save_path)
+                       save_path=save_path)

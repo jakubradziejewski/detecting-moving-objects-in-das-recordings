@@ -1,8 +1,3 @@
-"""
-Data Download Module
-Downloads and extracts DAS data from Google Drive
-"""
-
 import os
 import glob
 import requests

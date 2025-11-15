@@ -57,26 +57,6 @@ def plot_raw_waterfall(df, title="Raw DAS Data", figsize=(16, 10), save_path=Non
 def plot_statistical_analysis(df, stats, dx=5.106500953873407, dt=0.0016,
                               title="Statistical Analysis", figsize=(18, 10),
                               save_path=None):
-    """
-    Create comprehensive statistical analysis plots
-
-    Parameters:
-    -----------
-    df : pd.DataFrame
-        Data as DataFrame
-    stats : dict
-        Statistics dictionary from analysis
-    dx : float
-        Spatial resolution
-    dt : float
-        Temporal resolution
-    title : str
-        Figure title
-    figsize : tuple
-        Figure size
-    save_path : str or None
-        Path to save figure
-    """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     fig.suptitle(title, fontsize=16, fontweight='bold')
 

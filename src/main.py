@@ -4,7 +4,7 @@ import os
 # Add src to path if needed
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from data_loader import DASDataLoader, get_available_files
+from data_loader import load_das_segment, get_available_files
 from data_analysis import analyze_and_visualize_segment
 from download_data import download_data
 
@@ -21,7 +21,6 @@ DATE = '20240507'
 DX = 5.106500953873407  # Spatial resolution [m]
 DT = 0.0016  # Temporal resolution [s]
 
-
 print("\n" + "=" * 70)
 print(" DAS MOVING OBJECT DETECTION - DAYS 1 & 2")
 print(" Data Loading and Comprehensive Analysis")
@@ -31,7 +30,6 @@ print("=" * 70 + "\n")
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
     print(f"✓ Created output directory: {OUTPUT_DIR}\n")
-
 
 print("STEP 1: Checking data availability")
 print("-" * 70)
@@ -46,20 +44,17 @@ if len(available_files) == 0:
 else:
     print(f"✓ Found {len(available_files)} data files\n")
 
-
 print("STEP 2: Loading your assigned 2-minute segment")
 print("-" * 70)
 
-loader = DASDataLoader(data_path=DATA_PATH, dx=DX, dt=DT)
-
-
-data, df, metadata = loader.load_and_prepare(
-        start_time=START_TIME,
-        end_time=END_TIME,
-        date=DATE,
-        verbose=True
-    )
-
+data, df = load_das_segment(
+    start_time=START_TIME,
+    end_time=END_TIME,
+    data_path=DATA_PATH,
+    dx=DX,
+    dt=DT,
+    verbose=True
+)
 
 print("✓ Data loaded successfully!\n")
 
