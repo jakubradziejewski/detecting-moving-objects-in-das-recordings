@@ -20,48 +20,6 @@ def set_axis(x, no_labels=7):
     return x_positions, x_labels
 
 
-def plot_raw_waterfall(df, title="Raw DAS Data", figsize=(16, 10),
-                       cmap='gray_r', save_path=None):
-    fig, ax = plt.subplots(figsize=figsize)
-
-    data_to_plot = df.values
-
-    data_abs = np.abs(data_to_plot - np.mean(data_to_plot))
-
-    low, high = np.percentile(data_abs, [5, 99.5])
-    norm = Normalize(vmin=low, vmax=high, clip=True)
-
-    im = ax.imshow(data_abs,
-                   interpolation='none',
-                   aspect='auto',
-                   cmap=cmap,
-                   norm=norm)
-
-    ax.set_ylabel('Time', fontsize=12)
-    ax.set_xlabel('Space [m]', fontsize=12)
-    ax.set_title(title, fontsize=14, fontweight='bold')
-
-    x_positions, x_labels = set_axis(df.columns)
-    ax.set_xticks(x_positions)
-    ax.set_xticklabels(np.round(x_labels).astype(int))
-
-    time_labels = df.index.strftime('%H:%M:%S')
-    y_positions, y_labels = set_axis(time_labels)
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels(y_labels)
-
-    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('Absolute Strain Rate (Normalized)', fontsize=10)
-
-    plt.tight_layout()
-
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {save_path}")
-
-    plt.show()
-
-
 def plot_statistical_analysis(df, stats, dx=5.106500953873407, dt=0.0016,
                               title="Statistical Analysis", figsize=(18, 10),
                               save_path=None):

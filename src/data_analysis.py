@@ -1,5 +1,5 @@
 import numpy as np
-from visualizations import (plot_raw_waterfall, plot_statistical_analysis)
+from visualizations import plot_statistical_analysis
 
 
 def find_peaks_numpy(data, height, distance):
@@ -173,11 +173,3 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
         print(f"  {i + 1}. {freq:.2f} Hz (magnitude: {mag:.2e})")
     print("=" * 60)
 
-    # ==========================================
-    # 5. WATERFALL AND COMPARISON PLOTS
-    # ==========================================
-
-    # Waterfall plot
-    save_path = f"{output_dir}/{segment_name}_waterfall.png" if output_dir else None
-    plot_raw_waterfall(df, title=f"Raw DAS Data: {segment_name}",
-                       save_path=save_path)
