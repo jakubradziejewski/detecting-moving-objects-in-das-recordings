@@ -69,6 +69,6 @@ analyze_and_visualize_segment(
     dt=DT,
     dx=DX,
     segment_name=segment_name,
-    output_dir=OUTPUT_DIR,
-    verbose=True
+    output_dir=OUTPUT_DIR
 )
+

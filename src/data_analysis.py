@@ -1,7 +1,47 @@
 import numpy as np
-from scipy.signal import find_peaks
-from visualizations import (plot_raw_waterfall, plot_statistical_analysis,
-                            plot_frequency_analysis)
+from visualizations import (plot_raw_waterfall, plot_statistical_analysis)
+
+
+def find_peaks_numpy(data, height, distance):
+    """
+    Minimal numpy-only implementation of find_peaks with height and distance.
+    """
+    # 1. Find all indices that are local maxima
+    # (data[i] > data[i-1]) and (data[i] > data[i+1])
+    # We add 1 to the index to account for the diff shift
+    peaks = np.where(
+        (data[1:-1] > data[0:-2]) & (data[1:-1] > data[2:])
+    )[0] + 1
+
+    # 2. Filter by height
+    peaks = peaks[data[peaks] >= height]
+
+    # 3. Filter by distance
+    if distance > 1 and len(peaks) > 0:
+        # Sort peaks by magnitude (highest first)
+        peak_mags = data[peaks]
+        sort_indices = np.argsort(-peak_mags)
+        peaks_sorted = peaks[sort_indices]
+
+        # Keep track of peaks to keep
+        keep = np.ones(len(data), dtype=bool)
+        final_peaks = []
+
+        for i in peaks_sorted:
+            if keep[i]:
+                # This is a valid peak, keep it
+                final_peaks.append(i)
+
+                # Suppress all other peaks within 'distance'
+                start = max(0, i - distance)
+                end = min(len(data), i + distance + 1)
+                keep[start:end] = False
+
+        # Return peaks sorted by their original index
+        final_peaks.sort()
+        peaks = np.array(final_peaks)
+
+    return peaks
 
 
 def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
@@ -63,101 +103,75 @@ def analyze_and_visualize_segment(df, dt=0.0016, dx=5.106500953873407,
     sampling_rate = 1 / dt
     nyquist_freq = sampling_rate / 2
 
-    # Select high-variance channels (top 10)
-    top_indices = np.argsort(channel_vars)[-10:]
-
     # Compute average spectrum across sampled channels
     all_channel_ffts = []
-    for channel in df.columns[::10]:
+    all_freqs = None
+
+    for i, channel in enumerate(df.columns):
         signal = df[channel].values
+
+        # FFT for this channel
         fft = np.fft.fft(signal)
         freqs = np.fft.fftfreq(len(signal), dt)
+
+        # Only positive frequencies
         pos_mask = freqs >= 0
+        freqs_pos = freqs[pos_mask]
         fft_mag = np.abs(fft[pos_mask])
+
         all_channel_ffts.append(fft_mag)
 
-    avg_spectrum = np.mean(all_channel_ffts, axis=0)
-    std_spectrum = np.std(all_channel_ffts, axis=0)
-    freqs_pos = freqs[pos_mask]
+        if all_freqs is None:
+            all_freqs = freqs_pos
 
-    # Find dominant frequencies
+    # Convert to array for easier manipulation
+    all_channel_ffts = np.array(all_channel_ffts)
+
+    # Compute statistics across channels
+    avg_spectrum = np.mean(all_channel_ffts, axis=0)
+
+    # Find dominant frequencies in average spectrum
     freq_limit = 150
-    freq_mask = freqs_pos < freq_limit
-    peaks, _ = find_peaks(
-        avg_spectrum[freq_mask],
-        height=np.percentile(avg_spectrum[freq_mask], 90),
+    freq_mask = all_freqs < freq_limit
+
+    # --- THIS IS THE REPLACEMENT ---
+    data_to_search = avg_spectrum[freq_mask]
+    height_threshold = np.percentile(data_to_search, 90)
+
+    peaks = find_peaks_numpy(
+        data_to_search,
+        height=height_threshold,
         distance=10
     )
+    # --- END REPLACEMENT ---
 
-    dominant_freqs = freqs_pos[freq_mask][peaks]
+    dominant_freqs = all_freqs[freq_mask][peaks]
     dominant_mags = avg_spectrum[freq_mask][peaks]
 
-    # Compute FFT for selected high-variance channels
+    # Select a few representative channels for visualization (high variance)
+    top_indices = np.argsort(channel_vars)[-5:]  # Top 5 for plotting
+
     fft_results = []
-    for i in top_indices[:5]:
+    for i in top_indices:
         channel = df.columns[i]
-        signal = df[channel].values
-        fft = np.fft.fft(signal)
-        freqs = np.fft.fftfreq(len(signal), dt)
-        pos_mask = freqs >= 0
         fft_results.append({
             'channel': channel,
             'channel_index': int(channel / dx),
-            'freqs': freqs[pos_mask],
-            'magnitude': np.abs(fft[pos_mask])
+            'freqs': all_freqs,
+            'magnitude': all_channel_ffts[i]
         })
 
     print("\n" + "=" * 60)
     print("FREQUENCY ANALYSIS")
     print("=" * 60)
+    print(f"FFT computed for ALL {len(df.columns)} channels independently")
     print(f"Sampling rate: {sampling_rate:.1f} Hz")
     print(f"Nyquist frequency: {nyquist_freq:.1f} Hz")
+    print(f"Frequency resolution: {all_freqs[1]:.4f} Hz")
     print(f"\nDominant frequencies (< {freq_limit} Hz):")
     for i, (freq, mag) in enumerate(zip(dominant_freqs[:5], dominant_mags[:5])):
         print(f"  {i + 1}. {freq:.2f} Hz (magnitude: {mag:.2e})")
     print("=" * 60)
-
-    # Create frequency plot
-    freq_dict = {
-        'channel_ffts': fft_results,
-        'avg_spectrum': avg_spectrum,
-        'std_spectrum': std_spectrum,
-        'freqs': freqs_pos,
-        'dominant_frequencies': dominant_freqs,
-        'dominant_magnitudes': dominant_mags,
-        'peaks_indices': peaks
-    }
-
-    save_path = f"{output_dir}/{segment_name}_frequency.png" if output_dir else None
-    plot_frequency_analysis(freq_dict, dt=dt,
-                            title=f"Frequency Analysis: {segment_name}",
-                            save_path=save_path)
-
-    # ==========================================
-    # 4. SNR AND ACTIVE REGIONS
-    # ==========================================
-
-    # Estimate noise
-    sorted_vars = np.sort(channel_vars)
-    noise_estimate = np.mean(sorted_vars[:len(sorted_vars) // 4])
-
-    # Calculate SNR - high snr - high variance - clear signals, a lot of vehicles
-    snr = channel_vars / (noise_estimate + 1e-10)
-    snr_db = 10 * np.log10(snr)
-
-    # Identify active regions (high variance)
-    threshold = np.percentile(channel_vars, 75)
-    active_indices = np.where(channel_vars > threshold)[0]
-    active_positions = active_indices * dx
-
-    print("\n" + "=" * 60)
-    print("ACTIVE REGIONS")
-    print("=" * 60)
-    print(f"Active channels: {len(active_indices)} - areas of the street")
-    if len(active_positions) > 0:
-        print(f"Spatial range: {active_positions[0]:.1f} - {active_positions[-1]:.1f} m")
-    print("=" * 60)
-
 
     # ==========================================
     # 5. WATERFALL AND COMPARISON PLOTS
