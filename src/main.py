@@ -1,14 +1,18 @@
 import sys
 import os
+import numpy as np
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import load_das_segment
-from preprocessing import preprocess_pipeline
+from preprocessing import preprocess_pipeline, visualize_das, set_axis
 from data_analysis import analyze_and_visualize_segment
+from line_detection import detect_lines
 
-DATA_PATH = '../data/'
-OUTPUT_DIR = '../output/preprocessed'
+#from line_detection import detect_lines_hough, print_detected_lines, visualize_hough_results
+
+DATA_PATH = '/home/olek/sem5/computer-vision/project1/detecting-moving-objects-in-das-recordings/data'
+OUTPUT_DIR = 'output/preprocessed'
 
 START_TIME = '090522'
 END_TIME = '090712'
@@ -53,3 +57,10 @@ df_processed = preprocess_pipeline(df, dt=DT, show_steps=True)
 print("\n" + "=" * 70)
 print("ANALYSIS COMPLETE")
 print("=" * 70)
+
+
+print("Detecting lines using Hough Transform...")
+
+image = df_processed.values.copy()
+
+detect_lines(image, vertical_factor=0.01, horizontal_factor=10.0, threshold_ratio=0.85)
