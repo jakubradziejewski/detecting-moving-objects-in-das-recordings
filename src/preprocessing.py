@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import cv2
-
+import os
 
 def set_axis(x, no_labels=7):
     nx = x.shape[0]
@@ -11,8 +11,14 @@ def set_axis(x, no_labels=7):
     x_labels = x[::step_x]
     return x_positions, x_labels
 
+def visualize_das(df, output_dir, title, vmin_percentile=3, vmax_percentile=99, figsize=(12, 16)):
+    import os
+    
 
-def visualize_das(df, title, vmin_percentile=3, vmax_percentile=99, figsize=(12, 16)):
+    # Build filename automatically from the title
+    safe_title = title.replace(" ", "_").replace(":", "_")
+    save_path = os.path.join(output_dir, f"{safe_title}.png")
+
     fig = plt.figure(figsize=figsize)
     ax = plt.axes()
 
@@ -28,7 +34,10 @@ def visualize_das(df, title, vmin_percentile=3, vmax_percentile=99, figsize=(12,
     plt.xlabel('space [m]')
     plt.title(title)
 
-    cax = fig.add_axes([ax.get_position().x1 + 0.06, ax.get_position().y0, 0.02, ax.get_position().height])
+    cax = fig.add_axes([ax.get_position().x1 + 0.06,
+                        ax.get_position().y0,
+                        0.02,
+                        ax.get_position().height])
     plt.colorbar(im, cax=cax)
 
     x_positions, x_labels = set_axis(df.columns.values)
@@ -39,8 +48,12 @@ def visualize_das(df, title, vmin_percentile=3, vmax_percentile=99, figsize=(12,
     ax.set_yticks(y_positions, y_labels)
 
     plt.tight_layout()
-    plt.show()
 
+    # Save instead of showing
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
+    print(f"Saved figure to: {save_path}")
 
 def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
     n_samples = df.shape[0]
@@ -99,24 +112,6 @@ def morphological_closing(df, kernel_size=3):
 
     return df_closed
 
-
-def threshold_otsu(df):
-    data = df.values.copy()
-    data -= data.mean()
-    data = np.abs(data)
-
-    data_normalized = ((data - data.min()) / (data.max() - data.min()) * 255).astype(np.uint8)
-
-    _, thresholded = cv2.threshold(data_normalized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    data_thresholded = thresholded.astype(np.float64) / 255.0
-
-    import pandas as pd
-    df_thresholded = pd.DataFrame(data=data_thresholded, index=df.index, columns=df.columns)
-
-    return df_thresholded
-
-
 def threshold_percentile(df, percentile_low=3, percentile_high=99):
     data = df.values.copy()
     data -= data.mean()
@@ -138,51 +133,118 @@ def threshold_percentile(df, percentile_low=3, percentile_high=99):
 
     return df_thresholded
 
-
-def downsample(df, time_factor=2, space_factor=1):
-    data_downsampled = df.values[::time_factor, ::space_factor]
-
+def remove_spatial_median(df):
+    """Remove spatial median to suppress noisy channels"""
+    data = df.values.copy()
+    spatial_median = np.median(data, axis=1, keepdims=True)
+    data_cleaned = data - spatial_median
+    
     import pandas as pd
-    df_downsampled = pd.DataFrame(
-        data=data_downsampled,
-        index=df.index[::time_factor],
-        columns=df.columns[::space_factor]
-    )
+    return pd.DataFrame(data=data_cleaned, index=df.index, columns=df.columns)
 
-    return df_downsampled
-
-
-def preprocess_pipeline(df, dt=0.0016, show_steps=True):
+def remove_temporal_median_spectrum(df, dt=0.0016):
+    """
+    For each channel, compute the median frequency spectrum over time
+    and subtract it. This removes persistent frequency components (constant "hum").
+    """
+    n_samples = df.shape[0]
+    n_channels = df.shape[1]
+    
+    data_cleaned = df.values.copy()
+    
+    print(f"\nRemoving temporal median spectrum from each channel...")
+    
+    for ch in range(n_channels):
+        signal = df.iloc[:, ch].values
+        
+        # Compute spectrogram (time-frequency representation)
+        window_size = 512
+        hop_size = 128
+        n_windows = (n_samples - window_size) // hop_size + 1
+        
+        spectrogram = []
+        for i in range(n_windows):
+            start = i * hop_size
+            end = start + window_size
+            if end > n_samples:
+                break
+            
+            window = signal[start:end]
+            fft = np.fft.fft(window)
+            spectrogram.append(fft)
+        
+        spectrogram = np.array(spectrogram)
+        
+        # Find median spectrum (persistent frequency profile)
+        median_spectrum = np.median(spectrogram, axis=0)
+        
+        # Subtract median spectrum from each window
+        cleaned_spectrogram = spectrogram - median_spectrum
+        
+        # Reconstruct signal using overlap-add
+        cleaned_signal = np.zeros(n_samples)
+        window_count = np.zeros(n_samples)
+        
+        for i in range(n_windows):
+            start = i * hop_size
+            end = start + window_size
+            if end > n_samples:
+                break
+            
+            reconstructed_window = np.fft.ifft(cleaned_spectrogram[i])
+            cleaned_signal[start:end] += np.real(reconstructed_window)
+            window_count[start:end] += 1
+        
+        # Average overlapping regions
+        cleaned_signal = cleaned_signal / (window_count + 1e-10)
+        data_cleaned[:, ch] = cleaned_signal
+        
+        print(f"  ✓ Channel {ch} (@ {df.columns[ch]:.1f}m): Denoised")
+    
+    import pandas as pd
+    return pd.DataFrame(data=data_cleaned, index=df.index, columns=df.columns)
+def preprocess_pipeline(df, dt, output_dir, show_steps=True):
     print("\n" + "=" * 60)
     print("PREPROCESSING PIPELINE")
     print("=" * 60)
 
     if show_steps:
-        print("\nStep 0: Raw Data")
-        visualize_das(df, "Raw DAS Data")
+        visualize_das(df, output_dir, "0_Raw DAS Data")
 
-    print("\nStep 1: FFT frequency filtering (2-80 Hz)")
-    print("Vehicle vibrations are in 2-80 Hz range")
-    df_filtered = frequency_filter_fft(df, dt=dt, lowcut=1.0, highcut=50.0)
+
+
+    print("\nStep 1: FFT frequency filtering (60-90 Hz)")
+    df_filtered = frequency_filter_fft(df, dt=dt, lowcut=60.0, highcut=90.0)
     if show_steps:
-        visualize_das(df_filtered, "After FFT Bandpass Filter (2-80 Hz)")
+        visualize_das(df_filtered, output_dir, "After FFT Bandpass Filter")
+        print("\nStep 0.5: Remove spatial median (suppress noisy channels)")
+    
+        print("\nStep 0.5: Remove temporal median spectrum (denoise vertical stripes)")
+    df_filtered = remove_temporal_median_spectrum(df_filtered, dt=dt)
+    if show_steps:
+        visualize_das(df, output_dir, "1.5_After_Median_Spectrum_Removal")
+
+
+    df_filtered = remove_spatial_median(df_filtered)
+    if show_steps:
+        visualize_das(df, output_dir, "After Spatial Median Removal1")
 
     print("\nStep 2: Gaussian blur (noise reduction)")
     print("Smooth noise while preserving vehicle signals")
     df_blurred = gaussian_blur(df_filtered, kernel_size=5)
     if show_steps:
-        visualize_das(df_blurred, "After Gaussian Blur")
+        visualize_das(df_blurred, output_dir, "After Gaussian Blur")
 
     print("\nStep 3: Morphological closing")
     print("Connect broken vehicle tracks, fill small gaps")
     df_closed = morphological_closing(df_blurred, kernel_size=3)
     if show_steps:
-        visualize_das(df_closed, "After Morphological Closing", vmin_percentile=0, vmax_percentile=100)
+        visualize_das(df_closed, output_dir, "After Morphological Closing", vmin_percentile=0, vmax_percentile=100)
 
     print("\nStep 4: Thresholding (3rd-99th percentile)")
     df_processed = threshold_percentile(df_closed, percentile_low=3, percentile_high=99)
     if show_steps:
-        visualize_das(df_processed, "Final: Moving Objects Only", vmin_percentile=3, vmax_percentile=99)
+        visualize_das(df_processed, output_dir, "Final: Moving Objects Only", vmin_percentile=3, vmax_percentile=99)
 
     print("\n" + "=" * 60)
     print("PREPROCESSING COMPLETE")
