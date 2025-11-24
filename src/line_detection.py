@@ -87,6 +87,87 @@ def extract_lines(image, threshold_ratio=0.85, sigma=1.0):
     return lines
 
 
+def cluster_lines(lines):    
+    lines.sort(key=lambda x: x[1])
+    print(len(lines), "lines detected before clustering.")
+
+    # Define thresholds for clustering
+    angle_threshold = np.radians(15)
+    dist_threshold = 45
+    clusters = []
+    used = set()
+
+    for i, line1 in enumerate(lines):
+        print(line1)
+        if i in used:
+            continue
+    
+        # Start a new cluster with this line
+        cluster = [line1]
+        used.add(i)
+    
+        # Find all similar lines
+        for j, line2 in enumerate(lines):
+            if j in used or j <= i:
+                continue
+        
+            angle1, dist1, velocity_kmh1, x1, y1 = line1
+            angle2, dist2, velocity_kmh2, x2, y2 = line2
+        
+            # Check if angle and distance are within thresholds
+            angle_diff = abs(angle1 - angle2)
+            # Handle angle wrap-around at boundaries (-π/2 and π/2)
+            # Lines at -π/2 and π/2 represent the same orientation
+            if angle_diff > np.pi / 2:
+                angle_diff = np.pi - angle_diff
+        
+            dist_diff = abs(dist1 - dist2)
+        
+            if angle_diff <= angle_threshold and dist_diff <= dist_threshold:
+                cluster.append(line2)
+                used.add(j)
+    
+        clusters.append(cluster)
+
+    for cluster in clusters:
+        if len(cluster) > 1:
+            # Average the lines in the cluster
+            avg_angle = np.mean([line[0] for line in cluster])
+            avg_dist = np.mean([line[1] for line in cluster])
+            avg_velocity_kmh = np.mean([line[2] for line in cluster])
+            avg_x0 = np.mean([line[3] for line in cluster])
+            avg_y0 = np.mean([line[4] for line in cluster])
+        
+            # Remove individual lines from lines1
+            for line in cluster:
+                lines.remove(line)
+        
+            # Add the averaged line back to lines1
+            lines.append((avg_angle, avg_dist, avg_velocity_kmh, avg_x0, avg_y0))
+    
+    print(len(lines), "lines detected after clustering.")
+
+    return lines
+
+
+def process_lines(lines, dx_effective, dt_effective):
+    lines_processed = []
+    for angle, dist in lines:
+        x0, y0 = dist * np.array([np.cos(angle), np.sin(angle)])
+        
+        # slope in image coordinates = dy/dx (pixels)
+        slope_pixels = np.tan(angle + np.pi / 2)
+        
+        # velocity = distance/time = dx_effective / (dt_effective * slope_pixels)
+        velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
+        velocity_kmh = velocity_ms * 3.6  # Convert to km/h
+        
+        if velocity_kmh > 200 or velocity_kmh < 1:
+            continue  # Skip unrealistic velocities
+        lines_processed.append((angle, dist, velocity_kmh, x0, y0))
+    return lines_processed
+
+
 def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT):
     """
     Display image with detected lines and velocity annotations.
@@ -107,20 +188,12 @@ def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor,
     # If squeezed (factor < 1), each pixel represents more distance/time
     dx_effective = dx / horizontal_factor
     dt_effective = dt / vertical_factor
-    
-    for angle, dist in lines:
-        x0, y0 = dist * np.array([np.cos(angle), np.sin(angle)])
-        
-        # slope in image coordinates = dy/dx (pixels)
-        slope_pixels = np.tan(angle + np.pi / 2)
-        
-        # velocity = distance/time = dx_effective / (dt_effective * slope_pixels)
-        velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
-        velocity_kmh = velocity_ms * 3.6  # Convert to km/h
-        
-        if velocity_kmh > 300 or velocity_kmh < 1:
-            continue  # Skip unrealistic velocities
-        # Place text near the line
+
+    lines_processed = process_lines(lines, dx_effective, dt_effective)
+    lines_clustered = cluster_lines(lines_processed)
+    #lines_clustered = lines_processed
+
+    for angle, dist, velocity_kmh, x0, y0 in lines_clustered:
         plt.axline((x0, y0), slope=np.tan(angle + np.pi / 2), color='red', linewidth=2)
         text_x = x0 + 20
         text_y = y0
@@ -131,7 +204,7 @@ def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor,
     plt.xlim(0, image.shape[1])
     plt.ylim(image.shape[0], 0)
     plt.axis('off')
-    plt.savefig("hough_lines.png", dpi=150)
+    plt.savefig("hough_lines_clustered.png", dpi=150)
     plt.close()
 
 
