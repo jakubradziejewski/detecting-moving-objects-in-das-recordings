@@ -1,10 +1,9 @@
 import numpy as np
-
+import os
 from skimage.transform import hough_line, hough_line_peaks
 from skimage.feature import canny
 from skimage.draw import line as draw_line
 from skimage import data
-from scipy.ndimage import zoom
 
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -162,13 +161,61 @@ def process_lines(lines, dx_effective, dt_effective):
         velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
         velocity_kmh = velocity_ms * 3.6  # Convert to km/h
         
-        if velocity_kmh > 200 or velocity_kmh < 1:
+        if velocity_kmh > 150 or velocity_kmh < 1:
             continue  # Skip unrealistic velocities
         lines_processed.append((angle, dist, velocity_kmh, x0, y0))
     return lines_processed
 
 
-def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT):
+
+
+def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT, output_dir="."):
+    """
+    Display image with detected lines and velocity annotations.
+    Parameters:
+    - scaled_img: input image
+    - lines: list of (angle, dist) tuples
+    - dx: spatial resolution (meters per pixel) - horizontal, BEFORE any stretching/squeezing
+    - dt: temporal resolution (seconds per pixel) - vertical, BEFORE any stretching/squeezing
+    - vertical_factor: factor by which image was stretched/squeezed vertically (>1 = stretched, <1 = squeezed)
+    - horizontal_factor: factor by which image was stretched/squeezed horizontally (>1 = stretched, <1 = squeezed)
+    """
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image, cmap='gray', aspect='auto')
+    # Adjust dx and dt based on stretching/squeezing factors
+    # If stretched (factor > 1), each pixel represents less distance/time
+    # If squeezed (factor < 1), each pixel represents more distance/time
+    dx_effective = dx / horizontal_factor
+    dt_effective = dt / vertical_factor
+    for angle, dist in lines:
+        x0, y0 = dist * np.array([np.cos(angle), np.sin(angle)])
+        # slope in image coordinates = dy/dx (pixels)
+        slope_pixels = np.tan(angle + np.pi / 2)
+        # velocity = distance/time = dx_effective / (dt_effective * slope_pixels)
+        velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
+
+        velocity_kmh = velocity_ms * 3.6  # Convert to km/h
+        if velocity_kmh > 150 or velocity_kmh < 1:
+            continue  # Skip unrealistic velocities
+        # Place text near the line
+        plt.axline((x0, y0), slope=np.tan(angle + np.pi / 2), color='red', linewidth=2)
+        text_x = x0 + 20
+        text_y = y0
+        plt.text(text_x, text_y, f'v={velocity_kmh:.2f} km/h', 
+                color='yellow', fontsize=12, fontweight='bold',
+                bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+
+    plt.xlim(0, image.shape[1])
+    plt.ylim(image.shape[0], 0)
+    plt.axis('off')
+    save_path = os.path.join(output_dir, "hough_lines.png")
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+
+def show_lines_clustered(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT, output_dir="."):
     """
     Display image with detected lines and velocity annotations.
     
@@ -204,11 +251,13 @@ def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor,
     plt.xlim(0, image.shape[1])
     plt.ylim(image.shape[0], 0)
     plt.axis('off')
-    plt.savefig("hough_lines_clustered.png", dpi=150)
+    save_path = os.path.join(output_dir, "hough_lines_clustered.png")
+    plt.savefig(save_path, dpi=150)
     plt.close()
+    print(f"Saved: {save_path}")
 
 
-def detect_lines(image, vertical_factor, horizontal_factor, threshold_ratio=0.85, sigma=1.0):
+def detect_lines(image, vertical_factor, horizontal_factor, threshold_ratio=0.85, sigma=1.0, output_dir="."):
     """
     Wrapper to extract lines from an image and display them with velocities.
     
@@ -223,4 +272,5 @@ def detect_lines(image, vertical_factor, horizontal_factor, threshold_ratio=0.85
     image = stretch_image(image, axis=1, factor=horizontal_factor)
 
     lines = extract_lines(image, threshold_ratio=threshold_ratio, sigma=sigma)
-    show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor)
+    show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, output_dir=output_dir)
+    show_lines_clustered(image, lines, vertical_factor, horizontal_factor, output_dir=output_dir)
