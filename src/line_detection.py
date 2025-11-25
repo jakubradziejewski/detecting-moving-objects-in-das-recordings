@@ -86,8 +86,8 @@ def extract_lines(image, threshold_ratio=0.85, sigma=1.0):
     return lines
 
 
-def cluster_lines(lines):    
-    lines.sort(key=lambda x: x[1])
+def cluster_lines(lines, dx_effective, dt_effective):    
+    lines.sort(key=lambda x: x[0]) # sort by angle
     print(len(lines), "lines detected before clustering.")
 
     # Define thresholds for clustering
@@ -127,26 +127,31 @@ def cluster_lines(lines):
                 used.add(j)
     
         clusters.append(cluster)
+    
+    lines_clustered = []
 
     for cluster in clusters:
-        if len(cluster) > 1:
-            # Average the lines in the cluster
-            avg_angle = np.mean([line[0] for line in cluster])
-            avg_dist = np.mean([line[1] for line in cluster])
-            avg_velocity_kmh = np.mean([line[2] for line in cluster])
-            avg_x0 = np.mean([line[3] for line in cluster])
-            avg_y0 = np.mean([line[4] for line in cluster])
-        
-            # Remove individual lines from lines1
-            for line in cluster:
-                lines.remove(line)
-        
-            # Add the averaged line back to lines1
-            lines.append((avg_angle, avg_dist, avg_velocity_kmh, avg_x0, avg_y0))
+        if len(cluster) % 2 != 0: 
+            middle_idx = int((len(cluster)-1)/2)
+            middle_line = cluster[middle_idx]
+            lines_clustered.append(middle_line)
+        else:
+            middle_line1 = cluster[len(cluster)//2-1]
+            middle_line2 = cluster[len(cluster)//2]
+
+            avg_angle = (middle_line1[0] + middle_line2[0]) / 2
+            avg_dist = (middle_line1[1] + middle_line2[1]) / 2
+            avg_x0, avg_y0 = avg_dist * np.array([np.cos(avg_angle), np.sin(avg_angle)])
+
+            avg_slope_pixels = np.tan(avg_angle + np.pi / 2)
+            avg_velocity_ms = abs(dx_effective / (dt_effective * avg_slope_pixels))
+            avg_velocity_kmh = avg_velocity_ms * 3.6
+
+            lines_clustered.append((avg_angle, avg_dist, avg_velocity_kmh, avg_x0, avg_y0))
     
     print(len(lines), "lines detected after clustering.")
 
-    return lines
+    return lines_clustered
 
 
 def process_lines(lines, dx_effective, dt_effective):
@@ -237,7 +242,7 @@ def show_lines_clustered(image, lines, vertical_factor, horizontal_factor, dx=DX
     dt_effective = dt / vertical_factor
 
     lines_processed = process_lines(lines, dx_effective, dt_effective)
-    lines_clustered = cluster_lines(lines_processed)
+    lines_clustered = cluster_lines(lines_processed, dx_effective, dt_effective)
     #lines_clustered = lines_processed
 
     for angle, dist, velocity_kmh, x0, y0 in lines_clustered:
