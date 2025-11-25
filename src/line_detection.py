@@ -1,6 +1,6 @@
 import numpy as np
 import os
-from skimage.transform import hough_line, hough_line_peaks
+from skimage.transform import probabilistic_hough_line
 from skimage.feature import canny
 from skimage.draw import line as draw_line
 from skimage import data
@@ -56,160 +56,89 @@ def stretch_image(img, axis, factor):
         return np.repeat(img, int(factor), axis=axis)
     
 
-def extract_lines(image, threshold_ratio=0.85, sigma=1.0):
+def extract_lines(image, threshold=10, line_length=50, line_gap=10, sigma=1.0):
     """
-    Extract lines from an image using Hough transform.
+    Extract line segments from an image using Probabilistic Hough transform.
     
     Parameters:
     - image: input grayscale image (any range/dtype)
-    - threshold_ratio: ratio of max hough space value to use as threshold
+    - threshold: minimum number of votes (intersections in Hough grid)
+    - line_length: minimum accepted length of detected lines
+    - line_gap: maximum gap between pixels to still form a line
     - sigma: standard deviation for Canny edge detector
     
     Returns:
-    - lines: list of tuples (angle, dist) for each detected line
+    - lines: list of line segments, each as ((x0, y0), (x1, y1))
     """
+    # Normalize image to [0, 1]
     image = (image - image.min()) / (image.max() - image.min())
 
     # Apply edge detection first
     edges = canny(image, sigma=sigma)
     
-    # Now apply Hough transform on the binary edge image
-    tested_angles = np.linspace(-np.pi / 2, np.pi / 2, 360, endpoint=False)
-    h, theta, d = hough_line(edges, theta=tested_angles)
-    
-    # Extract peaks (detected lines)
-    _, angles, dists = hough_line_peaks(h, theta, d, threshold=np.max(h) * threshold_ratio)
-    
-    # Return as list of (angle, distance) tuples
-    lines = list(zip(angles, dists))
+    # Apply Probabilistic Hough transform
+    lines = probabilistic_hough_line(edges, threshold=threshold, 
+                                     line_length=line_length, 
+                                     line_gap=line_gap)
     
     return lines
 
 
-def cluster_lines(lines, dx_effective, dt_effective):    
-    lines.sort(key=lambda x: x[0]) # sort by angle
-    print(len(lines), "lines detected before clustering.")
-
-    # Define thresholds for clustering
-    angle_threshold = np.radians(15)
-    dist_threshold = 45
-    clusters = []
-    used = set()
-
-    for i, line1 in enumerate(lines):
-        print(line1)
-        if i in used:
-            continue
-    
-        # Start a new cluster with this line
-        cluster = [line1]
-        used.add(i)
-    
-        # Find all similar lines
-        for j, line2 in enumerate(lines):
-            if j in used or j <= i:
-                continue
-        
-            angle1, dist1, velocity_kmh1, x1, y1 = line1
-            angle2, dist2, velocity_kmh2, x2, y2 = line2
-        
-            # Check if angle and distance are within thresholds
-            angle_diff = abs(angle1 - angle2)
-            # Handle angle wrap-around at boundaries (-π/2 and π/2)
-            # Lines at -π/2 and π/2 represent the same orientation
-            if angle_diff > np.pi / 2:
-                angle_diff = np.pi - angle_diff
-        
-            dist_diff = abs(dist1 - dist2)
-        
-            if angle_diff <= angle_threshold and dist_diff <= dist_threshold:
-                cluster.append(line2)
-                used.add(j)
-    
-        clusters.append(cluster)
-    
-    lines_clustered = []
-
-    for cluster in clusters:
-        if len(cluster) % 2 != 0: 
-            middle_idx = int((len(cluster)-1)/2)
-            middle_line = cluster[middle_idx]
-            lines_clustered.append(middle_line)
-        else:
-            middle_line1 = cluster[len(cluster)//2-1]
-            middle_line2 = cluster[len(cluster)//2]
-
-            avg_angle = (middle_line1[0] + middle_line2[0]) / 2
-            avg_dist = (middle_line1[1] + middle_line2[1]) / 2
-            avg_x0, avg_y0 = avg_dist * np.array([np.cos(avg_angle), np.sin(avg_angle)])
-
-            avg_slope_pixels = np.tan(avg_angle + np.pi / 2)
-            avg_velocity_ms = abs(dx_effective / (dt_effective * avg_slope_pixels))
-            avg_velocity_kmh = avg_velocity_ms * 3.6
-
-            lines_clustered.append((avg_angle, avg_dist, avg_velocity_kmh, avg_x0, avg_y0))
-    
-    print(len(lines), "lines detected after clustering.")
-
-    return lines_clustered
-
-
-def process_lines(lines, dx_effective, dt_effective):
-    lines_processed = []
-    for angle, dist in lines:
-        x0, y0 = dist * np.array([np.cos(angle), np.sin(angle)])
-        
-        # slope in image coordinates = dy/dx (pixels)
-        slope_pixels = np.tan(angle + np.pi / 2)
-        
-        # velocity = distance/time = dx_effective / (dt_effective * slope_pixels)
-        velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
-        velocity_kmh = velocity_ms * 3.6  # Convert to km/h
-        
-        if velocity_kmh > 150 or velocity_kmh < 1:
-            continue  # Skip unrealistic velocities
-        lines_processed.append((angle, dist, velocity_kmh, x0, y0))
-    return lines_processed
-
-
-
-
-def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT, output_dir="."):
+def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, output_dir,
+                               dx=DX, dt=DT):
     """
-    Display image with detected lines and velocity annotations.
+    Display image with detected line segments and velocity annotations.
+    
     Parameters:
-    - scaled_img: input image
-    - lines: list of (angle, dist) tuples
-    - dx: spatial resolution (meters per pixel) - horizontal, BEFORE any stretching/squeezing
-    - dt: temporal resolution (seconds per pixel) - vertical, BEFORE any stretching/squeezing
-    - vertical_factor: factor by which image was stretched/squeezed vertically (>1 = stretched, <1 = squeezed)
-    - horizontal_factor: factor by which image was stretched/squeezed horizontally (>1 = stretched, <1 = squeezed)
+    - image: input image
+    - lines: list of line segments from probabilistic_hough_line
+    - vertical_factor: factor by which image was stretched/squeezed vertically
+    - horizontal_factor: factor by which image was stretched/squeezed horizontally
+    - dx: spatial resolution (meters per pixel) - horizontal, BEFORE stretching
+    - dt: temporal resolution (seconds per pixel) - vertical, BEFORE stretching
     """
     plt.figure(figsize=(10, 10))
     plt.imshow(image, cmap='gray', aspect='auto')
+    
     # Adjust dx and dt based on stretching/squeezing factors
-    # If stretched (factor > 1), each pixel represents less distance/time
-    # If squeezed (factor < 1), each pixel represents more distance/time
     dx_effective = dx / horizontal_factor
     dt_effective = dt / vertical_factor
-    for angle, dist in lines:
-        x0, y0 = dist * np.array([np.cos(angle), np.sin(angle)])
-        # slope in image coordinates = dy/dx (pixels)
-        slope_pixels = np.tan(angle + np.pi / 2)
-        # velocity = distance/time = dx_effective / (dt_effective * slope_pixels)
+    
+    for line in lines:
+        p0, p1 = line
+        x0, y0 = p0
+        x1, y1 = p1
+        
+        # Calculate angle and slope
+        dx_line = x1 - x0
+        dy_line = y1 - y0
+        
+        if dx_line == 0:
+            continue  # Skip vertical lines (infinite velocity)
+        
+        # Slope in image coordinates (pixels)
+        slope_pixels = dy_line / dx_line
+        
+        if slope_pixels == 0:
+            continue  # Skip horizontal lines (zero velocity)
+        
+        # Velocity calculation: distance/time
         velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
-
         velocity_kmh = velocity_ms * 3.6  # Convert to km/h
-        if velocity_kmh > 150 or velocity_kmh < 1:
+        
+        if velocity_kmh > 300 or velocity_kmh < 1:
             continue  # Skip unrealistic velocities
-        # Place text near the line
-        plt.axline((x0, y0), slope=np.tan(angle + np.pi / 2), color='red', linewidth=2)
-        text_x = x0 + 20
-        text_y = y0
+        
+        # Draw the line segment
+        plt.plot([x0, x1], [y0, y1], color='red', linewidth=2)
+        
+        # Place text at midpoint of line
+        text_x = (x0 + x1) / 2
+        text_y = (y0 + y1) / 2
         plt.text(text_x, text_y, f'v={velocity_kmh:.2f} km/h', 
                 color='yellow', fontsize=12, fontweight='bold',
                 bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
-
+    
     plt.xlim(0, image.shape[1])
     plt.ylim(image.shape[0], 0)
     plt.axis('off')
@@ -219,50 +148,7 @@ def show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor,
     print(f"Saved: {save_path}")
 
 
-
-def show_lines_clustered(image, lines, vertical_factor, horizontal_factor, dx=DX, dt=DT, output_dir="."):
-    """
-    Display image with detected lines and velocity annotations.
-    
-    Parameters:
-    - scaled_img: input image
-    - lines: list of (angle, dist) tuples
-    - dx: spatial resolution (meters per pixel) - horizontal, BEFORE any stretching/squeezing
-    - dt: temporal resolution (seconds per pixel) - vertical, BEFORE any stretching/squeezing
-    - vertical_factor: factor by which image was stretched/squeezed vertically (>1 = stretched, <1 = squeezed)
-    - horizontal_factor: factor by which image was stretched/squeezed horizontally (>1 = stretched, <1 = squeezed)
-    """
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image, cmap='gray', aspect='auto')
-    
-    # Adjust dx and dt based on stretching/squeezing factors
-    # If stretched (factor > 1), each pixel represents less distance/time
-    # If squeezed (factor < 1), each pixel represents more distance/time
-    dx_effective = dx / horizontal_factor
-    dt_effective = dt / vertical_factor
-
-    lines_processed = process_lines(lines, dx_effective, dt_effective)
-    lines_clustered = cluster_lines(lines_processed, dx_effective, dt_effective)
-    #lines_clustered = lines_processed
-
-    for angle, dist, velocity_kmh, x0, y0 in lines_clustered:
-        plt.axline((x0, y0), slope=np.tan(angle + np.pi / 2), color='red', linewidth=2)
-        text_x = x0 + 20
-        text_y = y0
-        plt.text(text_x, text_y, f'v={velocity_kmh:.2f} km/h', 
-                color='yellow', fontsize=12, fontweight='bold',
-                bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
-    
-    plt.xlim(0, image.shape[1])
-    plt.ylim(image.shape[0], 0)
-    plt.axis('off')
-    save_path = os.path.join(output_dir, "hough_lines_clustered.png")
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Saved: {save_path}")
-
-
-def detect_lines(image, vertical_factor, horizontal_factor, threshold_ratio=0.85, sigma=1.0, output_dir="."):
+def detect_lines(image, vertical_factor, horizontal_factor, threshold, line_length, line_gap, sigma, output_dir="."):
     """
     Wrapper to extract lines from an image and display them with velocities.
     
@@ -276,6 +162,5 @@ def detect_lines(image, vertical_factor, horizontal_factor, threshold_ratio=0.85
     image = squeeze_image(image, axis=0, factor=vertical_factor)
     image = stretch_image(image, axis=1, factor=horizontal_factor)
 
-    lines = extract_lines(image, threshold_ratio=threshold_ratio, sigma=sigma)
+    lines = extract_lines(image, threshold, line_length, line_gap, sigma)
     show_lines_with_velocities(image, lines, vertical_factor, horizontal_factor, output_dir=output_dir)
-    show_lines_clustered(image, lines, vertical_factor, horizontal_factor, output_dir=output_dir)

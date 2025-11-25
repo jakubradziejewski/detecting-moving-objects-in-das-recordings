@@ -110,7 +110,11 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         image, 
         vertical_factor=0.01, 
         horizontal_factor=10.0, 
-        threshold_ratio=0.55, output_dir=output_dir
+        threshold=10, 
+        line_length=50,
+        line_gap=10,
+        sigma=1.0,
+        output_dir=output_dir
     )
 
     print("\n" + "=" * 70)
