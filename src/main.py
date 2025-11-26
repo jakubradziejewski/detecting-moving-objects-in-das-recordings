@@ -1,7 +1,9 @@
 import sys
 import os
 import numpy as np
-
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import load_das_segment
@@ -24,7 +26,7 @@ FS = 625
 SEGMENTS = [
     {'start': '090522', 'end': '090712', 'name': 'segment_1'},
     {'start': '093252', 'end': '093442', 'name': 'segment_2'},
-    {'start': '094022', 'end': '094212', 'name': 'segment_3'}
+    {'start': '092112', 'end': '092302', 'name': 'segment_3'}
 ]
 
 def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
