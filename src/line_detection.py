@@ -70,6 +70,7 @@ def extract_lines(image, threshold_ratio=0.85, sigma=1.0):
     Returns:
     - lines: list of tuples (angle, dist) for each detected line
     """
+    # normalize to [0, 1] range
     image = (image - image.min()) / (image.max() - image.min())
 
     # Apply edge detection first
@@ -88,12 +89,9 @@ def extract_lines(image, threshold_ratio=0.85, sigma=1.0):
     return lines
 
 
-def cluster_lines(lines, dx_effective, dt_effective):    
+def cluster_lines(lines, dx_effective, dt_effective, angle_threshold=np.radians(15), dist_threshold=45):    
     lines.sort(key=lambda x: x[0]) # sort by angle
 
-    # Define thresholds for clustering
-    angle_threshold = np.radians(15)
-    dist_threshold = 45
     clusters = []
     used = set()
 
@@ -192,7 +190,7 @@ def show_lines_clustered(df, image, lines, vertical_factor, horizontal_factor, d
     dt_effective = dt / vertical_factor
 
     lines_processed = process_lines(lines, dx_effective, dt_effective)
-    lines_clustered = cluster_lines(lines_processed, dx_effective, dt_effective)
+    lines_clustered = cluster_lines(lines_processed, dx_effective, dt_effective, angle_threshold=np.radians(15), dist_threshold=45)
 
     for angle, dist, velocity_kmh, x0, y0 in lines_clustered:
         ax.axline((x0, y0), slope=np.tan(angle + np.pi / 2), color='red', linewidth=2)
