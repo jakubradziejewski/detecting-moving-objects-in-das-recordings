@@ -9,7 +9,6 @@ from preprocessing import preprocess_pipeline
 from analysis import (
     analyze_statistics,
     analyze_frequency_content,
-    analyze_frequency_bands,
     visualize_filtered_comparison
 )
 from line_detection import detect_lines
@@ -40,10 +39,6 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     output_dir = os.path.join(base_output_dir, segment_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
-    print("\n" + "=" * 70)
-    print(f" ANALYZING {segment_name.upper()}: {start_time} - {end_time}")
-    print("=" * 70 + "\n")
 
     print("=" * 70)
     print("STEP 1: Loading DAS Data")
@@ -59,9 +54,9 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         verbose=True
     )
     
-    print(f"✓ Loaded: {df.shape[0]} time samples × {df.shape[1]} channels")
-    print(f"  Duration: {df.shape[0] * dt:.1f} seconds")
-    print(f"  Spatial extent: {df.shape[1] * dx:.1f} meters")
+    print(f"Loaded: {df.shape[0]} time samples × {df.shape[1]} channels")
+    print(f"Duration: {df.shape[0] * dt:.1f} seconds")
+    print(f"Distance: {df.shape[1] * dx:.1f} meters")
     
     print("\n" + "=" * 70)
     print("STEP 2: Statistical Analysis")
@@ -78,17 +73,8 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("\n" + "=" * 70)
     print("STEP 3: Frequency Analysis")
     print("=" * 70)
-    
-    # 3A: Frequency content (FFT visualization)
-    print("\n[3A] Analyzing frequency content (FFT)...")
+
     freq_analysis = analyze_frequency_content(df, fs=fs, output_dir=output_dir)
-    
-    # 3B: Compare frequency bands
-    print("\n[3B] Comparing frequency bands...")
-    band_results = analyze_frequency_bands(df, fs=fs, output_dir=output_dir)
-    
-    # 3C: Visual comparison of filtered data
-    print("\n[3C] Creating filtered comparisons...")
     visualize_filtered_comparison(df, fs=fs, output_dir=output_dir)
     
     print("\n" + "=" * 70)
@@ -103,19 +89,17 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("\n" + "=" * 70)
     print("STEP 5: Line Detection (Hough Transform)")
     print("=" * 70)
-    
-    print("\nDetecting vehicle tracks...")
+
     image = df_processed.values.copy()
     detect_lines(
+        df_processed,
         image, 
         vertical_factor=0.01, 
         horizontal_factor=10.0, 
         threshold_ratio=0.55, output_dir=output_dir
     )
 
-    print("\n" + "=" * 70)
-    print(f"{segment_name.upper()} ANALYSIS COMPLETE ✓")
-    print("=" * 70)
+    print(f"{segment_name.upper()} processed successfully")
     print(f"\nResults saved to: {output_dir}")
     
     return {
@@ -123,13 +107,12 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         'output_dir': output_dir,
         'stats': stats,
         'freq_analysis': freq_analysis,
-        'band_results': band_results,
         'df_processed': df_processed
     }
 
 def main():
     print("\n" + "=" * 70)
-    print(" DAS MOVING OBJECT DETECTION - MULTI-SEGMENT ANALYSIS")
+    print(" DAS MOVING OBJECT DETECTION")
     print("=" * 70)
     print(f"\nAnalyzing {len(SEGMENTS)} segments:")
     for i, seg in enumerate(SEGMENTS, 1):
@@ -143,9 +126,7 @@ def main():
     # Analyze each segment
     results = []
     for i, segment_info in enumerate(SEGMENTS, 1):
-        print(f"\n{'#' * 70}")
-        print(f"# SEGMENT {i}/{len(SEGMENTS)}")
-        print(f"{'#' * 70}")
+        print(f"SEGMENT {i}/{len(SEGMENTS)}")
         
         result = analyze_segment(
             segment_info=segment_info,
@@ -156,10 +137,7 @@ def main():
             base_output_dir=BASE_OUTPUT_DIR
         )
         results.append(result)
-    
-    print("\n" + "=" * 70)
-    print(" ALL SEGMENTS ANALYZED SUCCESSFULLY ✓")
-    print("=" * 70)
+
     print(f"\nProcessed {len(SEGMENTS)} segments:")
     for result in results:
         print(f"  • {result['segment_name']}: {result['output_dir']}")
