@@ -198,9 +198,7 @@ def remove_temporal_median_spectrum(df, dt=0.0016):
         # Average overlapping regions
         cleaned_signal = cleaned_signal / (window_count + 1e-10)
         data_cleaned[:, ch] = cleaned_signal
-        
-        print(f"  ✓ Channel {ch} (@ {df.columns[ch]:.1f}m): Denoised")
-    
+
     import pandas as pd
     return pd.DataFrame(data=data_cleaned, index=df.index, columns=df.columns)
 def preprocess_pipeline(df, dt, output_dir, show_steps=True):
@@ -242,7 +240,7 @@ def preprocess_pipeline(df, dt, output_dir, show_steps=True):
         visualize_das(df_closed, output_dir, "After Morphological Closing", vmin_percentile=0, vmax_percentile=100)
 
     print("\nStep 4: Thresholding (3rd-99th percentile)")
-    df_processed = threshold_percentile(df_closed, percentile_low=3, percentile_high=99)
+    df_processed = threshold_percentile(df_closed, percentile_low=3, percentile_high=99)                                                                                                                    
     if show_steps:
         visualize_das(df_processed, output_dir, "Final: Moving Objects Only", vmin_percentile=3, vmax_percentile=99)
 
