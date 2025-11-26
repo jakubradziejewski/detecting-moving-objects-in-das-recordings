@@ -107,6 +107,7 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("\nDetecting vehicle tracks...")
     image = df_processed.values.copy()
     detect_lines(
+        df_processed,
         image, 
         vertical_factor=0.01, 
         horizontal_factor=10.0, 
