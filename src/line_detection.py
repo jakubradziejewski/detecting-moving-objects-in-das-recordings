@@ -162,7 +162,7 @@ def process_lines(lines, dx_effective, dt_effective):
         velocity_ms = abs(dx_effective / (dt_effective * slope_pixels))  # m/s
         velocity_kmh = velocity_ms * 3.6  # Convert to km/h
         
-        if velocity_kmh > 150 or velocity_kmh < 1:
+        if velocity_kmh > 140 or velocity_kmh < 30:
             continue  # Skip unrealistic velocities
         lines_processed.append((angle, dist, velocity_kmh, x0, y0))
     return lines_processed

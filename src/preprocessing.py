@@ -222,12 +222,12 @@ def preprocess_pipeline(df, dt, output_dir, show_steps=True):
         print("\nStep 0.5: Remove temporal median spectrum (denoise vertical stripes)")
     df_filtered = remove_temporal_median_spectrum(df_filtered, dt=dt)
     if show_steps:
-        visualize_das(df, output_dir, "1.5_After_Median_Spectrum_Removal")
+       visualize_das(df, output_dir, "1.5_After_Median_Spectrum_Removal")
 
 
     df_filtered = remove_spatial_median(df_filtered)
     if show_steps:
-        visualize_das(df, output_dir, "After Spatial Median Removal1")
+         visualize_das(df, output_dir, "After Spatial Median Removal1")
 
     print("\nStep 2: Gaussian blur (noise reduction)")
     print("Smooth noise while preserving vehicle signals")
