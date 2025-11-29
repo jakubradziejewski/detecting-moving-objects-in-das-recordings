@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import load_das_segment
-from preprocessing import preprocess_pipeline, visualize_das, frequency_filter_fft, resize_to_square, squeeze_dataframe, stretch_dataframe
+from preprocessing import visualize_das, frequency_filter_fft, resize_to_square
 from matplotlib.colors import Normalize
 from analysis import (
     analyze_statistics,
@@ -15,7 +15,8 @@ from analysis import (
     visualize_filtered_comparison
 )
 from line_detection import detect_lines
-
+import pandas as pd
+import cv2
 DATA_PATH = '../data'
 BASE_OUTPUT_DIR = '../output'
 OUTPUT_PATH = '../output'
@@ -74,7 +75,65 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     df_display = df_raw.copy()
     df_display -= df_display.mean()
     df_abs = np.abs(df_display)
-    df_square = resize_to_square(df_abs, target_size=750)
+
+
+    # --- Robust grayscale conversion (0–255) ---
+    # Use percentiles to avoid outlier influence
+    p_low = 3
+    p_high = 99
+
+    low_val = np.percentile(df_abs, p_low)
+    high_val = np.percentile(df_abs, p_high)
+
+    img_gray = df_abs.values.astype(np.float32)
+
+    # Clip values into the robust percentile range
+    img_gray = np.clip(img_gray, low_val, high_val)
+
+    # Normalize to 0–255
+    img_gray = (img_gray - low_val) / (high_val - low_val + 1e-8)
+    img_gray = img_gray * 255.0
+    img_gray = img_gray.astype(np.uint8)
+
+    # --- Adjustable brightness filter in 0–255 space ---
+    brightness_threshold = 80  # <-- adjust this freely (0–255)
+    img_filtered = img_gray.copy()
+    # Define your range
+    lower_thr = 50
+    upper_thr = 80
+
+    # Pixels within [50,100] -> 255, others -> 0
+    img_filtered = np.where((img_gray >= lower_thr) & (img_gray <= upper_thr), 255, 0).astype(np.uint8)
+
+    # Convert back to DataFrame for visualization
+    df_filtered = pd.DataFrame(img_filtered, index=df_abs.index, columns=df_abs.columns)
+
+    # Visualize
+    visualize_das(
+        df_filtered,
+        title=f"Brightness Filtered (0-255 gray, threshold={brightness_threshold})",
+        save_path=os.path.join(output_dir, "brightness_filtered.png")
+    )
+    kernel_size = 5     # try 3, 5, 7 depending on how strong you want it
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+    img_closed = cv2.morphologyEx(img_filtered, cv2.MORPH_CLOSE, kernel)
+
+
+    # ============================================================
+    # 4) Convert back to DataFrame for visualization & pipeline use
+    # ============================================================
+
+    df_closed = pd.DataFrame(img_closed, index=df_abs.index, columns=df_abs.columns)
+
+    # Visualize result
+    visualize_das(
+        df_closed,
+        title=f"Grayscale + Brightness Filter + Closing (thr={brightness_threshold})",
+        save_path=os.path.join(output_dir, "filtered_closed.png")
+    )
+
+    df_square = resize_to_square(df_closed, target_size=750)
 
     # Visualize resized square data
     visualize_das(df_square, title="Resized to Square (750x750)", 
@@ -88,8 +147,6 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     data_thresholded = np.clip(data_thresholded, 0, high_thresh)
 
     print(f"Threshold range: {low_thresh:.2e} to {high_thresh:.2e}")
-
-    import pandas as pd
     df_thresholded = pd.DataFrame(data=data_thresholded, index=df_square.index, columns=df_square.columns)
     visualize_das(df_thresholded, title="Thresholded Absolute Data", 
                 save_path=output_dir, normalize=False)
@@ -98,7 +155,7 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     detect_lines(
         df_thresholded,
         image,
-        thick_threshold=0.5,thin_threshold=0.6, output_dir=output_dir
+        thick_threshold=0.8,thin_threshold=0.5, output_dir=output_dir
     )
 
 
