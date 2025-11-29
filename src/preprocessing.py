@@ -1,59 +1,260 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+import os
+import numpy as np
+
+import matplotlib.pyplot as plt
+
 from matplotlib.colors import Normalize
+
 import cv2
+
 import os
 
+fs = 625
+
+def squeeze_dataframe(df, axis, factor):
+    """
+    Squeeze DataFrame along specified axis using averaging.
+    
+    Parameters:
+    - df: input DataFrame
+    - axis: 0 for time (rows), 1 for space (columns)
+    - factor: squeeze factor (< 1). e.g., 0.5 = squeeze to half size
+    """
+    if not 0 < factor < 1:
+        raise ValueError("Squeeze factor must be between 0 and 1")
+    
+    int_factor = int(1 / factor)
+    data = df.values
+    
+    if axis == 0:  # Time squeeze
+        new_height = data.shape[0] // int_factor
+        cropped = data[:new_height * int_factor]
+        squeezed = cropped.reshape(new_height, int_factor, data.shape[1]).mean(axis=1)
+        new_index = df.index[::int_factor][:new_height]
+        new_columns = df.columns
+    else:  # Space squeeze
+        new_width = data.shape[1] // int_factor
+        cropped = data[:, :new_width * int_factor]
+        squeezed = cropped.reshape(data.shape[0], new_width, int_factor).mean(axis=2)
+        new_index = df.index
+        new_columns = df.columns[::int_factor][:new_width]
+    
+    return pd.DataFrame(squeezed, index=new_index, columns=new_columns)
+
+
+def stretch_dataframe(df, axis, factor):
+    """
+    Stretch DataFrame along specified axis using repetition.
+    
+    Parameters:
+    - df: input DataFrame
+    - axis: 0 for time (rows), 1 for space (columns)
+    - factor: stretch factor (> 1). Must be integer.
+    """
+    if factor <= 1:
+        raise ValueError("Stretch factor must be > 1")
+    
+    int_factor = int(factor)
+    stretched = np.repeat(df.values, int_factor, axis=axis)
+    
+    if axis == 0:  # Time stretch
+        new_index = df.index.repeat(int_factor)
+        new_columns = df.columns
+    else:  # Space stretch
+        new_index = df.index
+        new_columns = df.columns.repeat(int_factor)
+    
+    return pd.DataFrame(stretched, index=new_index, columns=new_columns)
+
+
+def resize_to_square(df, target_size=1000):
+    """Resize DataFrame to square dimensions using squeeze/stretch."""
+    print(f"\nResizing to {target_size}×{target_size}...")
+    
+    initial_rows = df.shape[0]
+    initial_cols = df.shape[1]
+    
+    print(f"Initial shape: {initial_rows} × {initial_cols}")
+    
+    # Calculate factors
+    squeeze_factor_time = target_size / initial_rows
+    stretch_factor_space = int(target_size / initial_cols)
+    
+    print(f"Time squeeze factor: {squeeze_factor_time:.4f}")
+    print(f"Space stretch factor: {stretch_factor_space}")
+    
+    # Apply transformations
+    df_resized = squeeze_dataframe(df, axis=0, factor=squeeze_factor_time)
+    df_resized = stretch_dataframe(df_resized, axis=1, factor=stretch_factor_space)
+    
+    print(f"Final shape: {df_resized.shape[0]} × {df_resized.shape[1]}")
+    print("✓ Resizing complete")
+    
+    return df_resized
+
 def set_axis(x, no_labels=7):
+
     nx = x.shape[0]
+
     step_x = int(nx / (no_labels - 1))
+
     x_positions = np.arange(0, nx, step_x)
+
     x_labels = x[::step_x]
+
     return x_positions, x_labels
 
-def visualize_das(df, output_dir, title, vmin_percentile=3, vmax_percentile=99, figsize=(12, 16)):
-    import os
-    
-
-    # Build filename automatically from the title
-    safe_title = title.replace(" ", "_").replace(":", "_")
-    save_path = os.path.join(output_dir, f"{safe_title}.png")
-
+def visualize_das(df, title="DAS Data", figsize=(12, 16), save_path=None, normalize=True):
+    """Visualize DAS data with proper scaling and labels."""
     fig = plt.figure(figsize=figsize)
     ax = plt.axes()
-
-    data = df.values.copy()
-    data -= data.mean()
-    data = np.abs(data)
-
-    low, high = np.percentile(data, [vmin_percentile, vmax_percentile])
-    norm = Normalize(vmin=low, vmax=high, clip=True)
-
-    im = ax.imshow(data, interpolation='none', aspect='auto', norm=norm)
-    plt.ylabel('time')
-    plt.xlabel('space [m]')
+    
+    # Preprocessing: center and take absolute value
+    
+    if normalize:
+        df_display = df.copy()
+        # Normalize to percentiles for better visualization
+        low, high = np.percentile(df_display, [3, 99]) 
+        norm = Normalize(vmin=low, vmax=high, clip=True)
+        im = ax.imshow(df_display, interpolation='none', aspect='auto', norm=norm)
+    else:
+        im = ax.imshow(df, interpolation='none', aspect='auto')
+    plt.ylabel('Time')
+    plt.xlabel('Space [m]')
     plt.title(title)
-
-    cax = fig.add_axes([ax.get_position().x1 + 0.06,
-                        ax.get_position().y0,
-                        0.02,
-                        ax.get_position().height])
+    
+    # Add colorbar
+    cax = fig.add_axes([ax.get_position().x1+0.06, ax.get_position().y0, 
+                        0.02, ax.get_position().height])
     plt.colorbar(im, cax=cax)
-
+    
+    # Set axis ticks
     x_positions, x_labels = set_axis(df.columns.values)
     ax.set_xticks(x_positions, np.round(x_labels))
-
-    time_array = np.array([t.strftime('%H:%M:%S') for t in df.index.time])
-    y_positions, y_labels = set_axis(time_array)
+    
+    y_positions, y_labels = set_axis(df.index.time)
     ax.set_yticks(y_positions, y_labels)
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+
+
+def squeeze_image(img, axis, factor):
+    """
+    Squeeze image along specified axis using averaging for sharp results.
+    
+    Parameters:
+    - img: input image
+    - axis: 0 for vertical squeeze, 1 for horizontal squeeze
+    - factor: squeeze factor (< 1). e.g., 0.5 = squeeze to half size
+    
+    Returns:
+    - squeezed image
+    """
+    if factor >= 1:
+        raise ValueError("Squeeze factor must be < 1")
+    
+    int_factor = int(1 / factor)
+    
+    if axis == 0:  # Vertical squeeze
+        new_height = img.shape[0] // int_factor
+        return img[:new_height * int_factor].reshape(new_height, int_factor, img.shape[1]).mean(axis=1)
+    else:  # Horizontal squeeze
+        new_width = img.shape[1] // int_factor
+        return img[:, :new_width * int_factor].reshape(img.shape[0], new_width, int_factor).mean(axis=2)
+
+
+def stretch_image(img, axis, factor):
+    """
+    Stretch image along specified axis using repetition for sharp results.
+    
+    Parameters:
+    - img: input image
+    - axis: 0 for vertical stretch, 1 for horizontal stretch
+    - factor: stretch factor (> 1). e.g., 2.0 = stretch to double size
+    
+    Returns:
+    - stretched image
+    """
+    if factor <= 1:
+        raise ValueError("Stretch factor must be > 1")
+    
+    if factor == int(factor):
+        return np.repeat(img, int(factor), axis=axis)
+    
+def preprocess_pipeline(df, dt, output_dir, show_steps=True):
+    """
+    1. Takes the absolute value of the data (after centering).
+    2. Computes the 1D FFT for each channel and visualizes the averaged magnitude spectrum.
+    3. Returns the data as a DataFrame (df_processed).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    print("\n" + "=" * 70)
+    print("FREQUENCY CONTENT ANALYSIS (on Absolute Value Data)")
+    print("=" * 70)
+
+    # 1. Preprocessing: Center and take Absolute Value
+    # Center the data first to remove channel-specific DC offset
+    data_centered = df.values - df.values.mean(axis=0)
+    data_abs = np.abs(data_centered)
+    print("Preprocessing: Data centered by channel mean, then absolute value taken.")
+
+    # Create the DataFrame to be returned
+    df_processed = pd.DataFrame(data=data_abs, index=df.index, columns=df.columns)
+
+    # 2. Compute FFT on Absolute Data for Visualization
+    fft_data = np.fft.rfft(data_abs, axis=0)
+    magnitude = np.abs(fft_data)
+
+    # Calculate the frequency axis
+    n_samples = df.shape[0]
+    freqs = np.fft.rfftfreq(n_samples, d=1 / fs)
+
+    # Calculate average magnitude for plotting
+    avg_magnitude = np.mean(magnitude, axis=1)
+
+    # 3. Visualization: Average Magnitude Spectrum
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ax.plot(freqs, avg_magnitude, linewidth=1.5, color="blue")
+
+    # Find and highlight the dominant frequency (excluding DC/zero-frequency bin)
+    max_freq_index = np.argmax(avg_magnitude[1:]) + 1
+    max_freq = freqs[max_freq_index]
+
+    ax.scatter(
+        max_freq,
+        avg_magnitude[max_freq_index],
+        color="red",
+        s=50,
+        label=f"Peak @ {max_freq:.2f} Hz",
+        zorder=5,
+    )
+
+    ax.set_title(f"Average Magnitude Spectrum (on Absolute Value Data)", fontsize=14)
+    ax.set_xlabel("Frequency [Hz]", fontsize=11)
+    ax.set_ylabel("Average Magnitude", fontsize=11)
+    ax.set_xlim([0, fs / 2])  # Limit to Nyquist frequency
+    ax.grid(alpha=0.4)
+    ax.legend()
 
     plt.tight_layout()
-
-    # Save instead of showing
-    plt.savefig(save_path, dpi=300)
+    save_path = os.path.join(output_dir, "absolute_fft_spectrum_analysis.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.close()
 
-    print(f"Saved figure to: {save_path}")
+    print(f"Visualization saved to: {save_path}")
+    print(f"Dominant frequency: {max_freq:.2f} Hz")
+
+    # 4. Return df_processed
+    return df_processed
+
 
 def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
     n_samples = df.shape[0]
@@ -76,176 +277,7 @@ def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
         filtered_data[:, i] = np.real(filtered_signal)
 
     import pandas as pd
+
     df_filtered = pd.DataFrame(data=filtered_data, index=df.index, columns=df.columns)
 
     return df_filtered
-
-
-def gaussian_blur(df, kernel_size=5):
-    data = df.values.copy()
-    data_normalized = ((data - data.min()) / (data.max() - data.min()) * 255).astype(np.uint8)
-
-    blurred = cv2.GaussianBlur(data_normalized, (kernel_size, kernel_size), 0)
-
-    data_blurred = blurred.astype(np.float64) / 255.0 * (data.max() - data.min()) + data.min()
-
-    import pandas as pd
-    df_blurred = pd.DataFrame(data=data_blurred, index=df.index, columns=df.columns)
-
-    return df_blurred
-
-
-def morphological_closing(df, kernel_size=3):
-    data = df.values.copy()
-
-    threshold = np.percentile(np.abs(data), 90)
-    data_binary = (np.abs(data) > threshold).astype(np.uint8) * 255
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    closed = cv2.morphologyEx(data_binary, cv2.MORPH_CLOSE, kernel)
-
-    data_closed = data.copy()
-    data_closed[closed == 0] = 0
-
-    import pandas as pd
-    df_closed = pd.DataFrame(data=data_closed, index=df.index, columns=df.columns)
-
-    return df_closed
-
-def threshold_percentile(df, percentile_low=3, percentile_high=99):
-    data = df.values.copy()
-    data -= data.mean()
-    data_abs = np.abs(data)
-
-    low_thresh = np.percentile(data_abs, percentile_low)
-    high_thresh = np.percentile(data_abs, percentile_high)
-
-    data_thresholded = data_abs.copy()
-    data_thresholded[data_abs < low_thresh] = 0
-    data_thresholded = np.clip(data_thresholded, 0, high_thresh)
-
-    print(f"Threshold range: {low_thresh:.2e} to {high_thresh:.2e}")
-    print(
-        f"Kept {((data_abs >= low_thresh) & (data_abs <= high_thresh)).sum() / data_abs.size * 100:.2f}% of data points")
-
-    import pandas as pd
-    df_thresholded = pd.DataFrame(data=data_thresholded, index=df.index, columns=df.columns)
-
-    return df_thresholded
-
-def remove_spatial_median(df):
-    """Remove spatial median to suppress noisy channels"""
-    data = df.values.copy()
-    spatial_median = np.median(data, axis=1, keepdims=True)
-    data_cleaned = data - spatial_median
-    
-    import pandas as pd
-    return pd.DataFrame(data=data_cleaned, index=df.index, columns=df.columns)
-
-def remove_temporal_median_spectrum(df, dt=0.0016):
-    """
-    For each channel, compute the median frequency spectrum over time
-    and subtract it. This removes persistent frequency components (constant "hum").
-    """
-    n_samples = df.shape[0]
-    n_channels = df.shape[1]
-    
-    data_cleaned = df.values.copy()
-    
-    print(f"\nRemoving temporal median spectrum from each channel...")
-    
-    for ch in range(n_channels):
-        signal = df.iloc[:, ch].values
-        
-        # Compute spectrogram (time-frequency representation)
-        window_size = 512
-        hop_size = 128
-        n_windows = (n_samples - window_size) // hop_size + 1
-        
-        spectrogram = []
-        for i in range(n_windows):
-            start = i * hop_size
-            end = start + window_size
-            if end > n_samples:
-                break
-            
-            window = signal[start:end]
-            fft = np.fft.fft(window)
-            spectrogram.append(fft)
-        
-        spectrogram = np.array(spectrogram)
-        
-        # Find median spectrum (persistent frequency profile)
-        median_spectrum = np.median(spectrogram, axis=0)
-        
-        # Subtract median spectrum from each window
-        cleaned_spectrogram = spectrogram - median_spectrum
-        
-        # Reconstruct signal using overlap-add
-        cleaned_signal = np.zeros(n_samples)
-        window_count = np.zeros(n_samples)
-        
-        for i in range(n_windows):
-            start = i * hop_size
-            end = start + window_size
-            if end > n_samples:
-                break
-            
-            reconstructed_window = np.fft.ifft(cleaned_spectrogram[i])
-            cleaned_signal[start:end] += np.real(reconstructed_window)
-            window_count[start:end] += 1
-        
-        # Average overlapping regions
-        cleaned_signal = cleaned_signal / (window_count + 1e-10)
-        data_cleaned[:, ch] = cleaned_signal
-
-    import pandas as pd
-    return pd.DataFrame(data=data_cleaned, index=df.index, columns=df.columns)
-def preprocess_pipeline(df, dt, output_dir, show_steps=True):
-    print("\n" + "=" * 60)
-    print("PREPROCESSING PIPELINE")
-    print("=" * 60)
-
-    if show_steps:
-        visualize_das(df, output_dir, "0_Raw DAS Data")
-
-
-
-    print("\nStep 1: FFT frequency filtering (60-90 Hz)")
-    df_filtered = frequency_filter_fft(df, dt=dt, lowcut=60.0, highcut=90.0)
-    if show_steps:
-        visualize_das(df_filtered, output_dir, "After FFT Bandpass Filter")
-        print("\nStep 0.5: Remove spatial median (suppress noisy channels)")
-    
-        print("\nStep 0.5: Remove temporal median spectrum (denoise vertical stripes)")
-    df_filtered = remove_temporal_median_spectrum(df_filtered, dt=dt)
-    if show_steps:
-       visualize_das(df, output_dir, "1.5_After_Median_Spectrum_Removal")
-
-
-    df_filtered = remove_spatial_median(df_filtered)
-    if show_steps:
-         visualize_das(df, output_dir, "After Spatial Median Removal1")
-
-    print("\nStep 2: Gaussian blur (noise reduction)")
-    print("Smooth noise while preserving vehicle signals")
-    df_blurred = gaussian_blur(df_filtered, kernel_size=5)
-    if show_steps:
-        visualize_das(df_blurred, output_dir, "After Gaussian Blur")
-
-    print("\nStep 3: Morphological closing")
-    print("Connect broken vehicle tracks, fill small gaps")
-    df_closed = morphological_closing(df_blurred, kernel_size=3)
-    if show_steps:
-        visualize_das(df_closed, output_dir, "After Morphological Closing", vmin_percentile=0, vmax_percentile=100)
-
-    print("\nStep 4: Thresholding (3rd-99th percentile)")
-    df_processed = threshold_percentile(df_closed, percentile_low=3, percentile_high=99)                                                                                                                    
-    if show_steps:
-        visualize_das(df_processed, output_dir, "Final: Moving Objects Only", vmin_percentile=3, vmax_percentile=99)
-
-    print("\n" + "=" * 60)
-    print("PREPROCESSING COMPLETE")
-    print("=" * 60)
-
-    return df_processed
