@@ -7,7 +7,8 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import load_das_segment
-from preprocessing import preprocess_pipeline
+from preprocessing import preprocess_pipeline, visualize_das, frequency_filter_fft, resize_to_square, squeeze_dataframe, stretch_dataframe
+from matplotlib.colors import Normalize
 from analysis import (
     analyze_statistics,
     analyze_frequency_content,
@@ -17,6 +18,7 @@ from line_detection import detect_lines
 
 DATA_PATH = '../data'
 BASE_OUTPUT_DIR = '../output'
+OUTPUT_PATH = '../output'
 DATE = '20240507'
 DX = 5.106500953873407
 DT = 0.0016
@@ -47,25 +49,16 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("=" * 70)
     print(f"Loading segment ({start_time} to {end_time})...")
     
-    data, df = load_das_segment(
-        start_time=start_time,
-        end_time=end_time,
-        data_path=data_path,
-        dx=dx,
-        dt=dt,
-        verbose=True
-    )
-    
-    print(f"Loaded: {df.shape[0]} time samples × {df.shape[1]} channels")
-    print(f"Duration: {df.shape[0] * dt:.1f} seconds")
-    print(f"Distance: {df.shape[1] * dx:.1f} meters")
-    
+    df_raw = load_das_segment(start_time=start_time, end_time=end_time, data_path=data_path, dx=dx, dt=dt, verbose=True)
+
+
+
     print("\n" + "=" * 70)
     print("STEP 2: Statistical Analysis")
     print("=" * 70)
     
-    stats = analyze_statistics(
-        df=df,
+    analyze_statistics(
+        df=df_raw,
         dt=dt,
         dx=dx,
         segment_name=f"{start_time}_{end_time}",
@@ -76,41 +69,38 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("STEP 3: Frequency Analysis")
     print("=" * 70)
 
-    freq_analysis = analyze_frequency_content(df, fs=fs, output_dir=output_dir)
-    visualize_filtered_comparison(df, fs=fs, output_dir=output_dir)
-    
-    print("\n" + "=" * 70)
-    print("STEP 4: Preprocessing (Filtering & Enhancement)")
-    print("=" * 70)
-    
-    print("\nApplying preprocessing pipeline...")
-    df_processed = preprocess_pipeline(df, dt=dt, output_dir=output_dir, show_steps=True)
-    
-    print(f"✓ Preprocessing complete")
+    #analyze_frequency_content(df_raw, fs=fs, output_dir=output_dir)
+    #visualize_filtered_comparison(df_raw, fs=fs, output_dir=output_dir)
+    df_display = df_raw.copy()
+    df_display -= df_display.mean()
+    df_abs = np.abs(df_display)
+    df_square = resize_to_square(df_abs, target_size=750)
 
-    print("\n" + "=" * 70)
-    print("STEP 5: Line Detection (Hough Transform)")
-    print("=" * 70)
+    # Visualize resized square data
+    visualize_das(df_square, title="Resized to Square (750x750)", 
+              save_path=os.path.join(output_dir, 'resized_square_data.png'))
+    
+    low_thresh = np.percentile(df_square, 3)
+    high_thresh = np.percentile(df_square, 99)
 
-    image = df_processed.values.copy()
+    data_thresholded = df_square.copy()
+    data_thresholded[df_square < low_thresh] = 0
+    data_thresholded = np.clip(data_thresholded, 0, high_thresh)
+
+    print(f"Threshold range: {low_thresh:.2e} to {high_thresh:.2e}")
+
+    import pandas as pd
+    df_thresholded = pd.DataFrame(data=data_thresholded, index=df_square.index, columns=df_square.columns)
+    visualize_das(df_thresholded, title="Thresholded Absolute Data", 
+                save_path=output_dir, normalize=False)
+
+    image = df_thresholded.values.copy()
     detect_lines(
-        df_processed,
-        image, 
-        vertical_factor=0.01, 
-        horizontal_factor=10.0, 
-        threshold_ratio=0.55, output_dir=output_dir
+        df_thresholded,
+        image,
+        thick_threshold=0.5,thin_threshold=0.6, output_dir=output_dir
     )
 
-    print(f"{segment_name.upper()} processed successfully")
-    print(f"\nResults saved to: {output_dir}")
-    
-    return {
-        'segment_name': segment_name,
-        'output_dir': output_dir,
-        'stats': stats,
-        'freq_analysis': freq_analysis,
-        'df_processed': df_processed
-    }
 
 def main():
     print("\n" + "=" * 70)
@@ -130,7 +120,7 @@ def main():
     for i, segment_info in enumerate(SEGMENTS, 1):
         print(f"SEGMENT {i}/{len(SEGMENTS)}")
         
-        result = analyze_segment(
+        analyze_segment(
             segment_info=segment_info,
             data_path=DATA_PATH,
             dx=DX,
@@ -138,11 +128,7 @@ def main():
             fs=FS,
             base_output_dir=BASE_OUTPUT_DIR
         )
-        results.append(result)
 
-    print(f"\nProcessed {len(SEGMENTS)} segments:")
-    for result in results:
-        print(f"  • {result['segment_name']}: {result['output_dir']}")
     
     
     print("\n" + "=" * 70)
