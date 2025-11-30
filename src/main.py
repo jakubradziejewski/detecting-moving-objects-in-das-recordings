@@ -11,7 +11,7 @@ from preprocessing import preprocess_das_data
 from line_detection import detect_lines
 from analysis import analyze_statistics, analyze_frequency_content, visualize_filtered_comparison
 
-# Configuration
+# Config
 DATA_PATH = '../data'
 BASE_OUTPUT_DIR = '../output'
 DATE = '20240507'
@@ -19,26 +19,19 @@ DX = 5.106500953873407
 DT = 0.0016
 FS = 625
 
-# Define segments to analyze
 SEGMENTS = [
     {'start': '090522', 'end': '090712', 'name': 'segment_1'},
     {'start': '093252', 'end': '093442', 'name': 'segment_2'},
     {'start': '092112', 'end': '092302', 'name': 'segment_3'}
 ]
+
+
 def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
-    """
-    Complete analysis pipeline for a single segment.
-    
-    Pipeline:
-    1. Load raw DAS data
-    2. Preprocess data (centering, thresholding, morphology)
-    3. Detect lines (Hough transform, velocity calculation, clustering)
-    """
+    """Pipeline: load → analyze stats → preprocess → detect lines."""
     start_time = segment_info['start']
     end_time = segment_info['end']
     segment_name = segment_info['name']
     
-    # Create segment-specific output directory
     output_dir = os.path.join(base_output_dir, segment_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -61,13 +54,9 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("STEP 2: Statistical Analysis")
     print("=" * 70)
     
-    analyze_statistics(
-        df=df_raw,
-        dt=dt,
-        dx=dx,
-        segment_name=f"{start_time}_{end_time}",
-        output_dir=output_dir
-    )
+    analyze_statistics(df=df_raw, dt=dt, dx=dx, 
+                      segment_name=f"{start_time}_{end_time}", 
+                      output_dir=output_dir)
     analyze_frequency_content(df_raw, fs=fs, output_dir=output_dir)
     visualize_filtered_comparison(df_raw, fs=fs, output_dir=output_dir)
     
@@ -75,7 +64,6 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("STEP 3: Preprocessing")
     print("=" * 70)
     
-    # Preprocess data: centering, absolute value, resizing, thresholding, morphology
     binary_df, binary_image, original_df, original_image = preprocess_das_data(
         df_raw=df_raw,
         target_size=750,
@@ -87,7 +75,6 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("STEP 4: Line Detection")
     print("=" * 70)
     
-    # Detect lines: Hough transform, velocity calculation, clustering, thickness clustering
     detected_lines, thickness_clusters = detect_lines(
         binary_df=binary_df,
         binary_image=binary_image,
@@ -100,8 +87,8 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         threshold_ratio=0.6,
         output_dir=output_dir,
         enable_thickness_clustering=True,
-        max_clusters=None,  # Use distance_threshold instead for natural clustering
-        distance_threshold=0.8  # Adjust this: higher = fewer clusters, lower = more clusters
+        max_clusters=None,
+        distance_threshold=0.8
     )
     
     print(f"\n{'='*70}")
@@ -112,6 +99,8 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print(f"{'='*70}\n")
     
     return detected_lines, thickness_clusters
+
+
 def main():
     print("\n" + "=" * 70)
     print(" DAS MOVING OBJECT DETECTION")
@@ -121,18 +110,16 @@ def main():
         print(f"  {i}. {seg['name']}: {seg['start']} - {seg['end']}")
     print("=" * 70 + "\n")
     
-    # Create base output directory
     if not os.path.exists(BASE_OUTPUT_DIR):
         os.makedirs(BASE_OUTPUT_DIR)
     
-    # Analyze each segment
     all_results = []
     for i, segment_info in enumerate(SEGMENTS, 1):
         print(f"\n{'#'*70}")
         print(f"# PROCESSING SEGMENT {i}/{len(SEGMENTS)}: {segment_info['name']}")
         print(f"{'#'*70}\n")
         
-        detected_lines = analyze_segment(
+        detected_lines, thickness_clusters = analyze_segment(
             segment_info=segment_info,
             data_path=DATA_PATH,
             dx=DX,
@@ -143,7 +130,8 @@ def main():
         
         all_results.append({
             'segment': segment_info['name'],
-            'lines': detected_lines
+            'lines': detected_lines,
+            'clusters': thickness_clusters
         })
     
     print("\n" + "=" * 70)

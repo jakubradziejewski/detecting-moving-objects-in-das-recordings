@@ -8,89 +8,60 @@ from skimage.morphology import binary_closing, disk, remove_small_objects
 
 
 def squeeze_dataframe(df, axis, factor):
-    """
-    Squeeze DataFrame along specified axis using averaging.
-    
-    Parameters:
-    - df: input DataFrame
-    - axis: 0 for time (rows), 1 for space (columns)
-    - factor: squeeze factor (< 1). e.g., 0.5 = squeeze to half size
-    """
+    """Reduce size by averaging - e.g. factor=0.5 makes half size."""
     if not 0 < factor < 1:
         raise ValueError("Squeeze factor must be between 0 and 1")
     
     int_factor = int(1 / factor)
     data = df.values
     
-    if axis == 0:  # Time squeeze
+    if axis == 0:  # squeeze time
         new_height = data.shape[0] // int_factor
         cropped = data[:new_height * int_factor]
         squeezed = cropped.reshape(new_height, int_factor, data.shape[1]).mean(axis=1)
-        new_index = df.index[::int_factor][:new_height]
-        new_columns = df.columns
-    else:  # Space squeeze
+        return pd.DataFrame(squeezed, index=df.index[::int_factor][:new_height], columns=df.columns)
+    else:  # squeeze space
         new_width = data.shape[1] // int_factor
         cropped = data[:, :new_width * int_factor]
         squeezed = cropped.reshape(data.shape[0], new_width, int_factor).mean(axis=2)
-        new_index = df.index
-        new_columns = df.columns[::int_factor][:new_width]
-    
-    return pd.DataFrame(squeezed, index=new_index, columns=new_columns)
+        return pd.DataFrame(squeezed, index=df.index, columns=df.columns[::int_factor][:new_width])
 
 
 def stretch_dataframe(df, axis, factor):
-    """
-    Stretch DataFrame along specified axis using repetition.
-    
-    Parameters:
-    - df: input DataFrame
-    - axis: 0 for time (rows), 1 for space (columns)
-    - factor: stretch factor (> 1). Must be integer.
-    """
+    """Increase size by repeating values - factor must be integer."""
     if factor <= 1:
         raise ValueError("Stretch factor must be > 1")
     
     int_factor = int(factor)
     stretched = np.repeat(df.values, int_factor, axis=axis)
     
-    if axis == 0:  # Time stretch
-        new_index = df.index.repeat(int_factor)
-        new_columns = df.columns
-    else:  # Space stretch
-        new_index = df.index
-        new_columns = df.columns.repeat(int_factor)
-    
-    return pd.DataFrame(stretched, index=new_index, columns=new_columns)
+    if axis == 0:  # stretch time
+        return pd.DataFrame(stretched, index=df.index.repeat(int_factor), columns=df.columns)
+    else:  # stretch space
+        return pd.DataFrame(stretched, index=df.index, columns=df.columns.repeat(int_factor))
 
 
 def resize_to_square(df, target_size=750):
-    """Resize DataFrame to square dimensions using squeeze/stretch."""
+    """Make image square by squeezing time and stretching space."""
     print(f"\nResizing to {target_size}×{target_size}...")
+    print(f"Initial shape: {df.shape[0]} × {df.shape[1]}")
     
-    initial_rows = df.shape[0]
-    initial_cols = df.shape[1]
-    
-    print(f"Initial shape: {initial_rows} × {initial_cols}")
-    
-    # Calculate factors
-    squeeze_factor_time = target_size / initial_rows
-    stretch_factor_space = int(target_size / initial_cols)
+    squeeze_factor_time = target_size / df.shape[0]
+    stretch_factor_space = int(target_size / df.shape[1])
     
     print(f"Time squeeze factor: {squeeze_factor_time:.4f}")
     print(f"Space stretch factor: {stretch_factor_space}")
     
-    # Apply transformations
     df_resized = squeeze_dataframe(df, axis=0, factor=squeeze_factor_time)
     df_resized = stretch_dataframe(df_resized, axis=1, factor=stretch_factor_space)
     
     print(f"Final shape: {df_resized.shape[0]} × {df_resized.shape[1]}")
     print("✓ Resizing complete")
-    
     return df_resized
 
 
 def set_axis(x, no_labels=7):
-    """Generate positions and labels for axis ticks."""
+    """Pick evenly spaced positions for axis labels."""
     nx = x.shape[0]
     step_x = int(nx / (no_labels - 1))
     x_positions = np.arange(0, nx, step_x)
@@ -99,15 +70,15 @@ def set_axis(x, no_labels=7):
 
 
 def visualize_das(df, title="DAS Data", figsize=(12, 16), save_path=None, normalize=True):
-    """Visualize DAS data with proper scaling and labels."""
+    """Plot DAS data with proper scaling and time/space labels."""
     fig = plt.figure(figsize=figsize)
     ax = plt.axes()
     
     if normalize:
-        df_display = df.copy()
-        low, high = np.percentile(df_display, [3, 99]) 
+        # Clip to 3rd-99th percentile for better contrast
+        low, high = np.percentile(df, [3, 99]) 
         norm = Normalize(vmin=low, vmax=high, clip=True)
-        im = ax.imshow(df_display, interpolation='none', aspect='auto', norm=norm)
+        im = ax.imshow(df, interpolation='none', aspect='auto', norm=norm)
     else:
         im = ax.imshow(df, interpolation='none', aspect='auto')
     
@@ -120,7 +91,7 @@ def visualize_das(df, title="DAS Data", figsize=(12, 16), save_path=None, normal
                         0.02, ax.get_position().height])
     plt.colorbar(im, cax=cax)
     
-    # Set axis ticks
+    # Set ticks
     x_positions, x_labels = set_axis(df.columns.values)
     ax.set_xticks(x_positions, np.round(x_labels))
     
@@ -132,37 +103,18 @@ def visualize_das(df, title="DAS Data", figsize=(12, 16), save_path=None, normal
         print(f"Saved: {save_path}")
     
     plt.close()
+
+
 def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, output_dir="."):
     """
-    Complete preprocessing pipeline for DAS data.
-    
-    Steps:
-    1. Center data (remove mean)
-    2. Take absolute value
-    3. Resize to square
-    4. Apply thresholding
-    5. Normalize to [0, 1]
-    6. Apply adaptive thresholding (Li method)
-    7. Morphological operations (closing)
-    8. Remove small objects
-    
-    Parameters:
-    - df_raw: raw DAS data DataFrame
-    - target_size: target size for square image
-    - threshold_multiplier: multiplier for Li threshold
-    - output_dir: directory to save intermediate visualizations
-    
-    Returns:
-    - binary_df: preprocessed binary DataFrame ready for line detection
-    - binary_image: numpy array of binary image (for line detection)
-    - original_df: original preprocessed DataFrame (for final visualization)
-    - original_image: numpy array of original preprocessed image (for final visualization)
+    Full preprocessing: center → abs → resize → threshold → morphology.
+    Returns binary image for detection and original processed for visualization.
     """
     print("\n" + "=" * 70)
     print("PREPROCESSING PIPELINE")
     print("=" * 70)
     
-    # Step 1: Center and absolute value
+    # Step 1: Center and take absolute value
     print("\n1. Centering data and taking absolute value...")
     df_display = df_raw.copy()
     df_display -= df_display.mean()
@@ -174,7 +126,7 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
     visualize_das(df_square, title="Resized to Square", 
                   save_path=os.path.join(output_dir, '01_resized_square.png'))
     
-    # Step 3: Initial thresholding (percentile-based)
+    # Step 3: Percentile thresholding
     print("\n3. Applying percentile-based thresholding...")
     low_thresh = np.percentile(df_square, 3)
     high_thresh = np.percentile(df_square, 99)
@@ -195,7 +147,7 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
     image = df_thresholded.values.copy()
     image_norm = (image - image.min()) / (image.max() - image.min())
     
-    # Step 5: Apply adaptive thresholding (Li method)
+    # Step 5: Li adaptive thresholding - finds optimal threshold automatically
     print("\n5. Applying Li adaptive thresholding...")
     thresh = threshold_li(image_norm) * threshold_multiplier
     print(f"   Li threshold: {threshold_li(image_norm):.4f}")
@@ -209,7 +161,7 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
                   normalize=False,
                   save_path=os.path.join(output_dir, '03_binary_thresholded.png'))
     
-    # Step 6: Morphological closing
+    # Step 6: Morphological closing - fills small gaps
     print("\n6. Applying morphological closing...")
     binary = binary_closing(binary, disk(2))
     binary_df = pd.DataFrame(binary, index=df_thresholded.index, columns=df_thresholded.columns)
@@ -217,7 +169,7 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
                   normalize=False,
                   save_path=os.path.join(output_dir, '04_morphological_closing.png'))
     
-    # Step 7: Remove small objects
+    # Step 7: Remove small noise objects
     print("\n7. Removing small objects...")
     binary = remove_small_objects(binary, min_size=100)
     binary_df = pd.DataFrame(binary, index=df_thresholded.index, columns=df_thresholded.columns)
@@ -228,11 +180,11 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
     print("\n✓ Preprocessing complete")
     print("=" * 70)
     
-    # Return: binary (for detection), original thresholded (for visualization)
     return binary_df, binary, df_thresholded, image
 
+
 def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
-    """Apply FFT-based frequency filtering (kept for compatibility)."""
+    """Apply FFT bandpass filter to each channel."""
     n_samples = df.shape[0]
     n_channels = df.shape[1]
     filtered_data = np.zeros_like(df.values)
@@ -248,5 +200,4 @@ def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
         filtered_signal = np.fft.ifft(fft_filtered)
         filtered_data[:, i] = np.real(filtered_signal)
     
-    df_filtered = pd.DataFrame(data=filtered_data, index=df.index, columns=df.columns)
-    return df_filtered
+    return pd.DataFrame(data=filtered_data, index=df.index, columns=df.columns)
