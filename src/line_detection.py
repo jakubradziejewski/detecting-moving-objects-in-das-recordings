@@ -205,13 +205,16 @@ def visualize_detected_lines(df, image, lines, dx_effective, dt_effective, title
     
     plt.close()
 
-
 def detect_lines(binary_df, binary_image, original_df, original_image, 
                  dx=5.106500953873407, dt=0.0016, 
                  vertical_factor=0.01, horizontal_factor=14,
-                 threshold_ratio=0.85, output_dir="."):
+                 threshold_ratio=0.85, output_dir=".",
+                 enable_thickness_clustering=True,
+                 max_clusters=None,
+                 distance_threshold=1.5,
+                 use_velocity=False):
     """
-    Complete line detection pipeline.
+    Complete line detection pipeline with optional thickness-based clustering.
     
     Parameters:
     - binary_df: preprocessed binary DataFrame (for visualization)
@@ -224,10 +227,22 @@ def detect_lines(binary_df, binary_image, original_df, original_image,
     - horizontal_factor: horizontal scaling factor applied during preprocessing
     - threshold_ratio: Hough threshold ratio (0-1)
     - output_dir: directory to save visualizations
+    - enable_thickness_clustering: whether to perform thickness-based clustering
+    - max_clusters: maximum number of clusters (default: None, uses distance_threshold)
+    - distance_threshold: distance threshold for natural clustering (default: 1.5)
+                         Higher = fewer clusters, Lower = more clusters
+    - use_velocity: whether to include velocity in clustering (default: False)
     
     Returns:
     - lines_final: list of final detected lines with velocities
+    - thickness_clusters: dict of thickness-based clusters (if enabled)
     """
+    import os
+    from thickness_clustering import (
+        cluster_lines_by_thickness, 
+        visualize_thickness_clusters
+    )
+    
     print("\n" + "=" * 70)
     print("LINE DETECTION PIPELINE")
     print("=" * 70)
@@ -253,36 +268,68 @@ def detect_lines(binary_df, binary_image, original_df, original_image,
         save_path=os.path.join(output_dir, "06_lines_before_clustering_binary.png")
     )
     
-    # Step 3: Cluster lines
-    print("\n3. LINE CLUSTERING")
+    # Step 3: Cluster lines (spatial clustering)
+    print("\n3. LINE CLUSTERING (SPATIAL)")
     lines_clustered = cluster_lines(lines_with_velocity.copy(), dx_effective, dt_effective)
     
-    # Visualize lines after clustering (on binary)
+    # Visualize lines after spatial clustering (on binary)
     visualize_detected_lines(
         binary_df, binary_image, lines_clustered,
         dx_effective, dt_effective,
-        title="Detected Lines (After Clustering) - Binary",
+        title="Detected Lines (After Spatial Clustering) - Binary",
         save_path=os.path.join(output_dir, "07_lines_after_clustering_binary.png")
     )
     
-    # Step 4: Final visualization on ORIGINAL image
-    print("\n4. FINAL VISUALIZATION ON ORIGINAL IMAGE")
+    # Step 4: Thickness-based clustering (optional)
+    thickness_clusters = None
+    if enable_thickness_clustering:
+        print("\n4. THICKNESS-BASED CLUSTERING")
+        thickness_clusters, thickness_data = cluster_lines_by_thickness(
+            lines_clustered, 
+            binary_image, 
+            original_image,
+            max_clusters=max_clusters,
+            distance_threshold=distance_threshold
+        )
+        
+        # Visualize thickness clusters on binary image
+        visualize_thickness_clusters(
+            binary_df, binary_image, 
+            thickness_clusters, thickness_data,
+            dx_effective, dt_effective,
+            title="Lines Clustered by Thickness - Binary",
+            save_path=os.path.join(output_dir, "08_thickness_clusters_binary.png")
+        )
+        
+        # Visualize thickness clusters on ORIGINAL PROCESSED image (not raw)
+        visualize_thickness_clusters(
+            original_df, original_image, 
+            thickness_clusters, thickness_data,
+            dx_effective, dt_effective,
+            title="Lines Clustered by Thickness - Original Processed",
+            save_path=os.path.join(output_dir, "09_thickness_clusters_original.png")
+        )
+    
+    # Step 5: Final visualization on ORIGINAL image
+    print(f"\n{5 if enable_thickness_clustering else 4}. FINAL VISUALIZATION ON ORIGINAL IMAGE")
     visualize_detected_lines(
         original_df, original_image, lines_with_velocity,
         dx_effective, dt_effective,
         title="Detected Lines (Before Clustering) - Original",
-        save_path=os.path.join(output_dir, "08_lines_before_clustering_original.png")
+        save_path=os.path.join(output_dir, "10_lines_before_clustering_original.png")
     )
     
     visualize_detected_lines(
         original_df, original_image, lines_clustered,
         dx_effective, dt_effective,
         title="Final Detected Lines - Original Image",
-        save_path=os.path.join(output_dir, "09_lines_final_original.png")
+        save_path=os.path.join(output_dir, "11_lines_final_original.png")
     )
     
     print("\n✓ Line detection complete")
     print(f"  Final result: {len(lines_clustered)} lines")
+    if enable_thickness_clustering and thickness_clusters:
+        print(f"  Thickness clusters: {len(thickness_clusters)}")
     print("=" * 70)
     
-    return lines_clustered
+    return lines_clustered, thickness_clusters

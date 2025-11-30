@@ -25,8 +25,6 @@ SEGMENTS = [
     {'start': '093252', 'end': '093442', 'name': 'segment_2'},
     {'start': '092112', 'end': '092302', 'name': 'segment_3'}
 ]
-
-
 def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     """
     Complete analysis pipeline for a single segment.
@@ -72,6 +70,7 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     )
     analyze_frequency_content(df_raw, fs=fs, output_dir=output_dir)
     visualize_filtered_comparison(df_raw, fs=fs, output_dir=output_dir)
+    
     print("\n" + "=" * 70)
     print("STEP 3: Preprocessing")
     print("=" * 70)
@@ -88,8 +87,8 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
     print("STEP 4: Line Detection")
     print("=" * 70)
     
-    # Detect lines: Hough transform, velocity calculation, clustering
-    detected_lines = detect_lines(
+    # Detect lines: Hough transform, velocity calculation, clustering, thickness clustering
+    detected_lines, thickness_clusters = detect_lines(
         binary_df=binary_df,
         binary_image=binary_image,
         original_df=original_df,
@@ -99,16 +98,20 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         vertical_factor=0.01,
         horizontal_factor=14,
         threshold_ratio=0.6,
-        output_dir=output_dir
+        output_dir=output_dir,
+        enable_thickness_clustering=True,
+        max_clusters=None,  # Use distance_threshold instead for natural clustering
+        distance_threshold=0.8  # Adjust this: higher = fewer clusters, lower = more clusters
     )
     
     print(f"\n{'='*70}")
-    print(f"SEGMENT {segment_name} COMPLETE: {len(detected_lines)} lines detected")
+    print(f"SEGMENT {segment_name} COMPLETE:")
+    print(f"  - {len(detected_lines)} lines detected")
+    if thickness_clusters:
+        print(f"  - {len(thickness_clusters)} thickness clusters identified")
     print(f"{'='*70}\n")
     
-    return detected_lines
-
-
+    return detected_lines, thickness_clusters
 def main():
     print("\n" + "=" * 70)
     print(" DAS MOVING OBJECT DETECTION")

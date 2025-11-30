@@ -132,8 +132,6 @@ def visualize_das(df, title="DAS Data", figsize=(12, 16), save_path=None, normal
         print(f"Saved: {save_path}")
     
     plt.close()
-
-
 def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, output_dir="."):
     """
     Complete preprocessing pipeline for DAS data.
@@ -232,7 +230,6 @@ def preprocess_das_data(df_raw, target_size=750, threshold_multiplier=0.8, outpu
     
     # Return: binary (for detection), original thresholded (for visualization)
     return binary_df, binary, df_thresholded, image
-
 
 def frequency_filter_fft(df, dt=0.0016, lowcut=2.0, highcut=80.0):
     """Apply FFT-based frequency filtering (kept for compatibility)."""
