@@ -39,8 +39,44 @@ def analyze_statistics(df, dt=0.0016, dx=5.106500953873407,
     if output_dir:
         save_path = f"{output_dir}/{segment_name}_statistics.png"
         plot_statistical_analysis(df, stats_dict, dx=dx, dt=dt, save_path=save_path)
+        save_path = f"{output_dir}/{segment_name}_distributions.png"
+        plot_distributions(df, save_path)
     
     return stats_dict
+
+
+def plot_distributions(df, save_path):
+    original_values = df.values.flatten()
+    
+    # Apply thresholding
+    low_thresh = np.percentile(original_values, 3)
+    high_thresh = np.percentile(original_values, 99)
+    thresholded_values = original_values.copy()
+    thresholded_values[original_values < low_thresh] = 0
+    thresholded_values = np.clip(thresholded_values, 0, high_thresh)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Left: Original
+    axes[0].hist(original_values, bins=100, edgecolor='black', alpha=0.7, color='steelblue')
+    axes[0].set_xlabel('Value', fontsize=12)
+    axes[0].set_ylabel('Count', fontsize=12)
+    axes[0].set_title('Original Distribution', fontsize=13, fontweight='bold')
+    axes[0].grid(True, alpha=0.3)
+    
+    # Right: Thresholded
+    axes[1].hist(thresholded_values, bins=100, edgecolor='black', alpha=0.7, color='green')
+    axes[1].set_xlabel('Value', fontsize=12)
+    axes[1].set_ylabel('Count', fontsize=12)
+    axes[1].set_title('After [3%, 99%] Percentile Thresholding', fontsize=13, fontweight='bold')
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    plt.close()
 
 
 def plot_statistical_analysis(df, stats, dx=5.106500953873407, dt=0.0016, save_path=None):
@@ -165,12 +201,12 @@ def visualize_filtered_comparison(df, fs=625, output_dir='../output'):
     
     # Different frequency bands to test
     test_bands = [
-        (0.2, 0.8, 'Very Low (0.2-0.8 Hz)'),
-        (1.5, 3, 'Low (1.5-3 Hz)'),
-        (2, 2.5, 'Mid-Low (2-2.5 Hz)'),
-        (3.2, 4, 'Mid (3.2-4 Hz)'),
-        (1, 4, 'Mid-High (1-4 Hz)'),
-        (0.4, 0.6, 'High (0.4-0.6 Hz)')
+        (0.2, 0.8, '0.2-0.8 Hz'),
+        (1.5, 3, '1.5-3 Hz'),
+        (2, 2.5, '2-2.5 Hz'),
+        (3.2, 4, '3.2-4 Hz'),
+        (1, 4, '1-4 Hz'),
+        (0.4, 0.6, '0.4-0.6 Hz')
     ]
     
     dt = 1.0 / fs

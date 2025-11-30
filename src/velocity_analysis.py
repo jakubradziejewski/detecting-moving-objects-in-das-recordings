@@ -115,7 +115,7 @@ def analyze_velocity_over_time(df_raw, binary_image, lines, dx, dt, output_dir="
     velocity_profiles = []
     
     for idx, line in enumerate(lines):
-        nominal_kmh = line[2]
+        angle, dist, nominal_kmh, x0, y0 = line
         
         # Sample velocities along line
         times_idx, vels = sample_velocity_along_line(
@@ -128,6 +128,9 @@ def analyze_velocity_over_time(df_raw, binary_image, lines, dx, dt, output_dir="
             continue
         
         times_sec = times_idx * dt - times_idx[0] * dt
+        
+        # Calculate start time in the original data
+        start_time_str = df_raw.index[int(times_idx[0])].strftime('%H:%M:%S')
         
         # Apply smoothing
         vels_smooth = gaussian_filter(vels, sigma=1) if len(vels) > 10 else vels
@@ -155,11 +158,14 @@ def analyze_velocity_over_time(df_raw, binary_image, lines, dx, dt, output_dir="
         ax = axes[idx]
         ax.plot(times_sec, vels_smooth, 'b-', lw=1, alpha=0.4, label='Smoothed')
         ax.plot(times_sec, vels_trend, 'r-', lw=2, label='Trend')
-        ax.axhline(nominal_kmh, c='g', ls='--', alpha=0.8, label=f'Nominal: {nominal_kmh:.0f}')
+        ax.axhline(nominal_kmh, c='g', ls='--', alpha=0.8, label=f'Nominal: {nominal_kmh:.1f}')
         ax.fill_between(times_sec, mean_vel - std_vel, mean_vel + std_vel, 
                         color='red', alpha=0.1)
         
-        ax.set_title(f"Line {idx+1}: {mean_vel:.1f} ± {std_vel:.1f} km/h", fontweight='bold')
+        # Add start time to help distinguish lines
+        ax.set_title(f"Line {idx+1} (Start: {start_time_str}) | Nom: {nominal_kmh:.1f} km/h\n"
+                    f"Measured: {mean_vel:.1f} ± {std_vel:.1f} km/h", 
+                    fontweight='bold', fontsize=10)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Velocity (km/h)")
         ax.legend(fontsize='small')
