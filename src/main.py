@@ -10,8 +10,8 @@ from data_loader import load_das_segment
 from preprocessing import preprocess_das_data
 from line_detection import detect_lines
 from analysis import analyze_statistics, analyze_frequency_content, visualize_filtered_comparison
+from velocity_analysis import analyze_velocity_over_time, plot_signal_and_velocity
 
-# Config
 DATA_PATH = '../data'
 BASE_OUTPUT_DIR = '../output'
 DATE = '20240507'
@@ -27,7 +27,7 @@ SEGMENTS = [
 
 
 def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
-    """Pipeline: load → analyze stats → preprocess → detect lines."""
+    """Pipeline: load → analyze stats → preprocess → detect lines → analyze velocity."""
     start_time = segment_info['start']
     end_time = segment_info['end']
     segment_name = segment_info['name']
@@ -90,15 +90,35 @@ def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
         max_clusters=None,
         distance_threshold=0.8
     )
+
+    print("\n" + "=" * 70)
+    print("STEP 5: Velocity Over Time Analysis")
+    print("=" * 70)
     
+    # Analyze velocity variations over time using raw data
+    # Pass the ORIGINAL dx and dt values (not effective/scaled ones)
+    velocity_profiles = analyze_velocity_over_time(
+        df_raw=df_raw,
+        lines=detected_lines,
+        dx=dx,  # Original: 5.106500953873407 m/channel
+        dt=dt,  # Original: 0.0016 s/sample
+        method='centroid',  # or 'peak' or 'edge'
+        output_dir=output_dir
+    )
+    
+    # Create additional correlation plots
+    if velocity_profiles:
+        plot_signal_and_velocity(velocity_profiles, output_dir)
+
     print(f"\n{'='*70}")
     print(f"SEGMENT {segment_name} COMPLETE:")
     print(f"  - {len(detected_lines)} lines detected")
     if thickness_clusters:
         print(f"  - {len(thickness_clusters)} thickness clusters identified")
+    print(f"  - {len(velocity_profiles)} velocity profiles generated")
     print(f"{'='*70}\n")
     
-    return detected_lines, thickness_clusters
+    return detected_lines, thickness_clusters, velocity_profiles
 
 
 def main():
@@ -119,7 +139,7 @@ def main():
         print(f"# PROCESSING SEGMENT {i}/{len(SEGMENTS)}: {segment_info['name']}")
         print(f"{'#'*70}\n")
         
-        detected_lines, thickness_clusters = analyze_segment(
+        detected_lines, thickness_clusters, velocity_profiles = analyze_segment(
             segment_info=segment_info,
             data_path=DATA_PATH,
             dx=DX,
@@ -131,7 +151,8 @@ def main():
         all_results.append({
             'segment': segment_info['name'],
             'lines': detected_lines,
-            'clusters': thickness_clusters
+            'clusters': thickness_clusters,
+            'velocity_profiles': velocity_profiles
         })
     
     print("\n" + "=" * 70)
@@ -139,7 +160,9 @@ def main():
     print("=" * 70)
     print("\nSummary:")
     for result in all_results:
-        print(f"  {result['segment']}: {len(result['lines'])} lines detected")
+        print(f"  {result['segment']}:")
+        print(f"    - {len(result['lines'])} lines detected")
+        print(f"    - {len(result['velocity_profiles'])} velocity profiles")
     print("=" * 70 + "\n")
     
     return all_results
