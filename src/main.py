@@ -2,19 +2,18 @@ import sys
 import os
 import warnings
 
-warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore')
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import load_das_segment
 from preprocessing import preprocess_das_data
 from line_detection import detect_lines
 from analysis import analyze_statistics, analyze_frequency_content, visualize_filtered_comparison
-from velocity_analysis import analyze_velocity_over_time, plot_signal_and_velocity
+from velocity_analysis import analyze_velocity_over_time
 
+# Configuration
 DATA_PATH = '../data'
 BASE_OUTPUT_DIR = '../output'
-DATE = '20240507'
 DX = 5.106500953873407
 DT = 0.0016
 FS = 625
@@ -27,143 +26,72 @@ SEGMENTS = [
 
 
 def analyze_segment(segment_info, data_path, dx, dt, fs, base_output_dir):
-    """Pipeline: load → analyze stats → preprocess → detect lines → analyze velocity."""
+    """Pipeline: load → analyze → preprocess → detect → velocity analysis."""
     start_time = segment_info['start']
     end_time = segment_info['end']
     segment_name = segment_info['name']
     
     output_dir = os.path.join(base_output_dir, segment_name)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    print("=" * 70)
-    print("STEP 1: Loading DAS Data")
-    print("=" * 70)
-    print(f"Segment: {segment_name} ({start_time} to {end_time})")
-    
-    df_raw = load_das_segment(
-        start_time=start_time,
-        end_time=end_time,
-        data_path=data_path,
-        dx=dx,
-        dt=dt,
-        verbose=True
-    )
-    
-    print("\n" + "=" * 70)
-    print("STEP 2: Statistical Analysis")
-    print("=" * 70)
-    
-    analyze_statistics(df=df_raw, dt=dt, dx=dx, 
-                      segment_name=f"{start_time}_{end_time}", 
-                      output_dir=output_dir)
-    analyze_frequency_content(df_raw, fs=fs, output_dir=output_dir)
-    visualize_filtered_comparison(df_raw, fs=fs, output_dir=output_dir)
-    
-    print("\n" + "=" * 70)
-    print("STEP 3: Preprocessing")
-    print("=" * 70)
-    
-    binary_df, binary_image, original_df, original_image = preprocess_das_data(
-        df_raw=df_raw,
-        target_size=750,
-        threshold_multiplier=0.8,
-        output_dir=output_dir
-    )
-    
-    print("\n" + "=" * 70)
-    print("STEP 4: Line Detection")
-    print("=" * 70)
-    
-    detected_lines, thickness_clusters = detect_lines(
-        binary_df=binary_df,
-        binary_image=binary_image,
-        original_df=original_df,
-        original_image=original_image,
-        dx=dx,
-        dt=dt,
-        vertical_factor=0.01,
-        horizontal_factor=14,
-        threshold_ratio=0.6,
-        output_dir=output_dir,
-        enable_thickness_clustering=True,
-        max_clusters=None,
-        distance_threshold=0.8
-    )
-
-    print("\n" + "=" * 70)
-    print("STEP 5: Velocity Over Time Analysis")
-    print("=" * 70)
-    
-    # Analyze velocity variations over time using raw data
-    # Pass the ORIGINAL dx and dt values (not effective/scaled ones)
-    velocity_profiles = analyze_velocity_over_time(
-        df_raw=df_raw,
-        lines=detected_lines,
-        dx=dx,  # Original: 5.106500953873407 m/channel
-        dt=dt,  # Original: 0.0016 s/sample
-        method='centroid',  # or 'peak' or 'edge'
-        output_dir=output_dir
-    )
-    
-    # Create additional correlation plots
-    if velocity_profiles:
-        plot_signal_and_velocity(velocity_profiles, output_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
     print(f"\n{'='*70}")
-    print(f"SEGMENT {segment_name} COMPLETE:")
-    print(f"  - {len(detected_lines)} lines detected")
-    if thickness_clusters:
-        print(f"  - {len(thickness_clusters)} thickness clusters identified")
-    print(f"  - {len(velocity_profiles)} velocity profiles generated")
-    print(f"{'='*70}\n")
+    print(f"PROCESSING {segment_name} ({start_time} to {end_time})")
+    print(f"{'='*70}")
     
+    # Load data
+    df_raw = load_das_segment(start_time, end_time, data_path, dx, dt, verbose=True)
+    
+    # Statistical analysis
+    analyze_statistics(df_raw, dt, dx, f"{start_time}_{end_time}", output_dir)
+    analyze_frequency_content(df_raw, fs, output_dir)
+    visualize_filtered_comparison(df_raw, fs, output_dir)
+    
+    # Preprocessing
+    binary_df, binary_image, original_df, original_image = preprocess_das_data(
+        df_raw, target_size=750, threshold_multiplier=0.8, output_dir=output_dir
+    )
+    
+    # Line detection
+    detected_lines, thickness_clusters = detect_lines(
+        binary_df, binary_image, original_df, original_image,
+        dx, dt, 0.01, 14, 0.6, output_dir,
+        enable_thickness_clustering=True, distance_threshold=0.8
+    )
+
+    # Velocity analysis
+    velocity_profiles = analyze_velocity_over_time(
+        df_raw, binary_image, detected_lines, dx, dt, output_dir
+    )
+    
+    print(f"\nCOMPLETE: {len(detected_lines)} lines, {len(velocity_profiles)} profiles")
     return detected_lines, thickness_clusters, velocity_profiles
 
 
 def main():
-    print("\n" + "=" * 70)
-    print(" DAS MOVING OBJECT DETECTION")
-    print("=" * 70)
-    print(f"\nAnalyzing {len(SEGMENTS)} segments:")
-    for i, seg in enumerate(SEGMENTS, 1):
-        print(f"  {i}. {seg['name']}: {seg['start']} - {seg['end']}")
-    print("=" * 70 + "\n")
+    print(f"\nDAS MOVING OBJECT DETECTION - {len(SEGMENTS)} segments\n")
     
-    if not os.path.exists(BASE_OUTPUT_DIR):
-        os.makedirs(BASE_OUTPUT_DIR)
-    
+    os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
     all_results = []
+    
     for i, segment_info in enumerate(SEGMENTS, 1):
         print(f"\n{'#'*70}")
-        print(f"# PROCESSING SEGMENT {i}/{len(SEGMENTS)}: {segment_info['name']}")
-        print(f"{'#'*70}\n")
+        print(f"SEGMENT {i}/{len(SEGMENTS)}: {segment_info['name']}")
+        print(f"{'#'*70}")
         
-        detected_lines, thickness_clusters, velocity_profiles = analyze_segment(
-            segment_info=segment_info,
-            data_path=DATA_PATH,
-            dx=DX,
-            dt=DT,
-            fs=FS,
-            base_output_dir=BASE_OUTPUT_DIR
+        lines, clusters, profiles = analyze_segment(
+            segment_info, DATA_PATH, DX, DT, FS, BASE_OUTPUT_DIR
         )
         
         all_results.append({
             'segment': segment_info['name'],
-            'lines': detected_lines,
-            'clusters': thickness_clusters,
-            'velocity_profiles': velocity_profiles
+            'lines': lines,
+            'clusters': clusters,
+            'velocity_profiles': profiles
         })
     
-    print("\n" + "=" * 70)
-    print(" PIPELINE COMPLETE")
-    print("=" * 70)
-    print("\nSummary:")
-    for result in all_results:
-        print(f"  {result['segment']}:")
-        print(f"    - {len(result['lines'])} lines detected")
-        print(f"    - {len(result['velocity_profiles'])} velocity profiles")
-    print("=" * 70 + "\n")
+    print(f"\n{'='*70}\nPIPELINE COMPLETE\n{'='*70}")
+    for r in all_results:
+        print(f"{r['segment']}: {len(r['lines'])} lines, {len(r['velocity_profiles'])} profiles")
     
     return all_results
 
